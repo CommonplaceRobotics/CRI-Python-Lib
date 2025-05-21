@@ -27,6 +27,7 @@ class KinematicsState(Enum):
     VIRTUAL_BOX3 = 33
     VIRTUAL_BOX4 = 34
     VIRTUAL_BOX5 = 35
+    UNKNOWN = 98
     MOTION_NOT_ALLOWED = 99
 
 
