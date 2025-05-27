@@ -817,6 +817,7 @@ class CRIController:
         E2: float,
         E3: float,
         velocity: float,
+        frame: str = "#base",
         wait_move_finished: bool = False,
         move_finished_timeout: float | None = 300.0,
         acceleration: float | None = None,
@@ -845,7 +846,7 @@ class CRIController:
             requires igus Robot Control version >= V14-004-1 on robot controller
         """
         command = (
-            f"CMD Move RelativeBase {X} {Y} {Z} {A} {B} {C} {E1} {E2} {E3} {velocity}"
+            f"CMD Move RelativeBase {X} {Y} {Z} {A} {B} {C} {E1} {E2} {E3} {velocity} {frame}"
         )
 
         if (
@@ -893,6 +894,7 @@ class CRIController:
         E2: float,
         E3: float,
         velocity: float,
+        frame: str = "#base",
         wait_move_finished: bool = False,
         move_finished_timeout: float | None = 300.0,
         acceleration: float | None = None,
@@ -921,7 +923,7 @@ class CRIController:
             requires igus Robot Control version >= V14-004-1 on robot controller
         """
         command = (
-            f"CMD Move RelativeTool {X} {Y} {Z} {A} {B} {C} {E1} {E2} {E3} {velocity}"
+            f"CMD Move RelativeTool {X} {Y} {Z} {A} {B} {C} {E1} {E2} {E3} {velocity} {frame}"
         )
 
         if (
