@@ -1124,7 +1124,7 @@ class CRIController:
         if (id < 0) or (id > 63):
             raise ValueError
 
-        command = f"CMD DOUT {id} {str(value).lower()}"
+        command = f"CMD DOUT {id+1} {str(value).lower()}"
 
         if (msg_id := self._send_command(command, True)) is not None:
             if (
