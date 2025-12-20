@@ -163,7 +163,7 @@ class CRIController:
         command: str,
         register_answer: bool = False,
         fixed_answer_name: str | None = None,
-    ) -> int | None:
+    ) -> int:
         """Sends the given command to iRC.
 
         Parameters
@@ -173,9 +173,13 @@ class CRIController:
 
         Returns
         -------
-        int | None
-            If the command was sent the message_id gets returned or None if there was an error.
+        int
+            The sent message_id.
 
+        Raises
+        ------
+        CRIConnectionError
+            When not connected or connection was lost.
         """
         if not self.connected or self.sock is None:
             logger.error("Not connected. Use connect() to establish a connection.")
