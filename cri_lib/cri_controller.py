@@ -15,6 +15,10 @@ from .robot_state import KinematicsState, RobotState
 logger = logging.getLogger(__name__)
 
 
+DEFAULT = object()
+"""Placeholder for defaulting a parameter to runtime-configurable default values."""
+
+
 class MotionType(Enum):
     """Robot Motion Type for Jogging"""
 
@@ -284,7 +288,9 @@ class CRIController:
                     continue_parsing = False
 
     def _wait_for_answer(
-        self, message_id: str | int, timeout: float | None = None
+        self,
+        message_id: str | int,
+        timeout: float | None = DEFAULT,  # type: ignore
     ) -> None | str:
         """Waits for an answer to a message.
         The answer event will be removed after the call, even if there was a timeout. Choose timeout accordingly.
@@ -294,8 +300,10 @@ class CRIController:
         message_id : int or str
             message id of sent message of which an answer is expected
 
-        timeout : float | None
-            timeout for wait in seconds. `None` will wait indefinetly
+        timeout : float | DEFAULT | None
+            timeout for wait in seconds.
+            - `DEFAULT` uses `self.DEFAULT_ANSWER_TIMEOUT`
+            - `None` will wait indefinetly
 
         Returns
         -------
@@ -315,12 +323,14 @@ class CRIController:
                 return None
             wait_event = self.answer_events[message_id]
 
-        # prevent deadlock through answer_events_lock
+        if timeout is DEFAULT:
+            timeout = self.DEFAULT_ANSWER_TIMEOUT
         success = wait_event.wait(timeout=timeout)
 
         if not success:
             raise CRICommandTimeOutError()
 
+        # prevent deadlock through answer_events_lock
         with self.answer_events_lock:
             del self.answer_events[message_id]
 
@@ -392,11 +402,7 @@ class CRIController:
             `False` if request was not successful
         """
         msg_id = self._send_command("CMD Reset", True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in RESET command: %s", error_msg)
             return False
         else:
@@ -413,11 +419,7 @@ class CRIController:
             `False` if request was not successful
         """
         msg_id = self._send_command("CMD Enable", True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in ENABLE command: %s", error_msg)
             return False
         else:
@@ -433,11 +435,7 @@ class CRIController:
             `False` if request was not successful
         """
         msg_id = self._send_command("CMD Disable", True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in DISABLE command: %s", error_msg)
             return False
         else:
@@ -458,9 +456,7 @@ class CRIController:
             f"Active_{str(active).lower()}",
         )
         if (
-            error_msg := self._wait_for_answer(
-                f"Active_{str(active).lower()}", timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
+            error_msg := self._wait_for_answer(f"Active_{str(active).lower()}")
         ) is not None:
             logger.debug("Error in set active control command: %s", error_msg)
             return False
@@ -477,11 +473,7 @@ class CRIController:
             `False` if request was not successful
         """
         msg_id = self._send_command("CMD SetJointsToZero", True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in SetJointsToZero command: %s", error_msg)
             return False
         else:
@@ -542,11 +534,7 @@ class CRIController:
             `False` if request was not successful
         """
         self._send_command("CMD GetReferencingInfo", True, "info_referencing")
-        if (
-            error_msg := self._wait_for_answer(
-                "info_referencing", timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer("info_referencing")) is not None:
             logger.debug("Error in GetReferencingInfo command: %s", error_msg)
             return False
         else:
@@ -1009,11 +997,7 @@ class CRIController:
         command = f"CMD MotionType{motion_type.value}"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in MotionType command: %s", error_msg)
             return False
         else:
@@ -1036,11 +1020,7 @@ class CRIController:
         command = f"CMD Override {override}"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in Override command: %s", error_msg)
             return False
         else:
@@ -1069,11 +1049,7 @@ class CRIController:
         command = f"CMD DOUT {id} {str(value).lower()}"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in DOUT command: %s", error_msg)
             return False
         else:
@@ -1102,11 +1078,7 @@ class CRIController:
         command = f"CMD DIN {id} {str(value).lower()}"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in DIN command: %s", error_msg)
             return False
         else:
@@ -1135,11 +1107,7 @@ class CRIController:
         command = f"CMD GSIG {id} {str(value).lower()}"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in DIN command: %s", error_msg)
             return False
         else:
@@ -1162,11 +1130,7 @@ class CRIController:
         command = f"CMD LoadProgram {program_name}"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in load_program command: %s", error_msg)
             return False
         else:
@@ -1189,11 +1153,7 @@ class CRIController:
         command = f"CMD LoadLogicProgram {program_name}"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in load_logic_program command: %s", error_msg)
             return False
         else:
@@ -1211,11 +1171,7 @@ class CRIController:
         command = "CMD StartProgram"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in start_program command: %s", error_msg)
             return False
         else:
@@ -1233,11 +1189,7 @@ class CRIController:
         command = "CMD StopProgram"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in stop_program command: %s", error_msg)
             return False
         else:
@@ -1255,11 +1207,7 @@ class CRIController:
         command = "CMD PauseProgram"
 
         msg_id = self._send_command(command, True)
-        if (
-            error_msg := self._wait_for_answer(
-                msg_id, timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
-        ) is not None:
+        if (error_msg := self._wait_for_answer(msg_id)) is not None:
             logger.debug("Error in pause_program command: %s", error_msg)
             return False
         else:
@@ -1375,7 +1323,9 @@ class CRIController:
         return item
 
     def get_board_temperatures(
-        self, blocking: bool = True, timeout: float | None = None
+        self,
+        blocking: bool = True,
+        timeout: float | None = DEFAULT,  # type: ignore
     ) -> bool:
         """Receive motor controller PCB temperatures and save in robot state
 
@@ -1389,9 +1339,7 @@ class CRIController:
         """
         self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
         if (
-            error_msg := self._wait_for_answer(
-                "info_boardtemp", timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
+            error_msg := self._wait_for_answer("info_boardtemp", timeout=timeout)
         ) is not None:
             logger.debug("Error in GetBoardTemp command: %s", error_msg)
             return False
@@ -1399,7 +1347,9 @@ class CRIController:
             return True
 
     def get_motor_temperatures(
-        self, blocking: bool = True, timeout: float | None = None
+        self,
+        blocking: bool = True,
+        timeout: float | None = DEFAULT,  # type: ignore
     ) -> bool:
         """Receive motor temperatures and save in robot state
 
@@ -1413,9 +1363,7 @@ class CRIController:
         """
         self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
         if (
-            error_msg := self._wait_for_answer(
-                "info_motortemp", timeout=self.DEFAULT_ANSWER_TIMEOUT
-            )
+            error_msg := self._wait_for_answer("info_motortemp", timeout=timeout)
         ) is not None:
             logger.debug("Error in GetMotorTemp command: %s", error_msg)
             return False
