@@ -41,6 +41,9 @@ class CRIController:
     def __init__(self) -> None:
         self.robot_state: RobotState = RobotState()
         self.robot_state_lock = threading.Lock()
+        
+        self.program_list: list = []
+        self.program_list_lock: Lock = threading.Lock()
 
         self.parser = CRIProtocolParser(self.robot_state, self.robot_state_lock)
 
@@ -1370,6 +1373,36 @@ class CRIController:
         else:
             return True
 
+    def list_flies(self, target_directory: str = "Programs" ) -> bool:
+        """request a list of all files in the directory, which is relative to the /Data/ directory.
+        
+        Parameters
+        ----------
+        directory : str
+            directory on iRC `/Data/<target_directory>` in which files are located, e.g. `Programs` for normal robot programs
+        
+        Returns
+        -------
+        a list of files?
+        """
+
+        command = f"CMD ListFiles {target_directory}"
+
+        if (
+            self._send_command(command=command, register_answer=True, fixed_answer_name="info_flielist")
+            is not None
+        ):
+            if (
+                error_msg := self._wait_for_answer(
+                    "info_flielist", timeout=self.DEFAULT_ANSWER_TIMEOUT
+                )
+            ) is not None:
+                logger.debug("Error in GetBoardTemp command: %s", error_msg)
+                return False
+            else:
+                return True
+        else:
+            return False
 
 # Monkey patch to maintain backward compatibility
 CRIController.MotionType = MotionType  # type: ignore

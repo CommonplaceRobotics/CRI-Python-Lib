@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 class CRIProtocolParser:
     """Class handling the parsing of CRI messages to the robot state."""
 
-    def __init__(self, robot_state: RobotState, robot_state_lock: Lock):
+    def __init__(self, robot_state: RobotState, robot_state_lock: Lock, program_list : list, program_list_lock: Lock):
         self.robot_state = robot_state
         self.robot_state_lock = robot_state_lock
+        self.program_list = program_list
+        self.program_list_lock = program_list_lock
 
     def parse_message(
         self, message: str
@@ -598,6 +600,13 @@ class CRIProtocolParser:
                 self.robot_state.motor_temps = temperatures
 
             return "info_motortemp"
+        elif parameters[0] == "FileList":
+            with self.program_list_lock:
+                self.program_list.clear() # direct point to parameters[] will break the shared reference
+                self.program_list.extend(parameters[2:]) # first element is the target_folder
+                print(self.program_list)
+            return "info_flielist"
+        
         else:
             return None
 
