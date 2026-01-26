@@ -116,10 +116,12 @@ class CRIController:
             self.connected = True
 
             # Start receiving commands
-            self.receive_thread.start()
+            if not self.receive_thread.is_alive():
+                self.receive_thread.start()
 
             # Start sending ALIVEJOG message
-            self.jog_thread.start()
+            if not self.jog_thread.is_alive():
+                self.jog_thread.start()
 
             hello_msg = f'INFO Hello "{application_name}" {application_version} {datetime.now(timezone.utc).strftime(format="%Y-%m-%dT%H:%M:%S")}'
 
