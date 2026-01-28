@@ -51,10 +51,9 @@ class CRIController:
         self.can_mode: bool = False
         self.can_queue: Queue = Queue()
 
-        self.jog_thread = threading.Thread(target=self._bg_alivejog_thread, daemon=True)
-        self.receive_thread = threading.Thread(
-            target=self._bg_receive_thread, daemon=True
-        )
+        # Threads are created upon connect() and should be accessed through read-only properties.
+        self._jog_thread: threading.Thread | None = None
+        self._receive_thread: threading.Thread | None = None
 
         self.sent_command_counter_lock = threading.Lock()
         self.sent_command_counter = 0
@@ -78,6 +77,22 @@ class CRIController:
             "E3": 0.0,
         }
         self.jog_speeds_lock = threading.Lock()
+
+    @property
+    def receive_thread(self) -> threading.Thread:
+        if self._receive_thread is None:
+            raise CRIConnectionError(
+                "Receive thread not started yet. Call connect() first."
+            )
+        return self._receive_thread
+
+    @property
+    def jog_thread(self) -> threading.Thread:
+        if self._jog_thread is None:
+            raise CRIConnectionError(
+                "Jog thread not started yet. Call connect() first."
+            )
+        return self._jog_thread
 
     def connect(
         self,
@@ -113,18 +128,24 @@ class CRIController:
             ip = socket.gethostbyname(host)
             self.sock.connect((ip, port))
             logger.debug("\t Robot connected: %s:%d", host, port)
-            self.connected = True
 
             # Start receiving commands
+            self._receive_thread = threading.Thread(
+                target=self._bg_receive_thread, daemon=True
+            )
             self.receive_thread.start()
 
             # Start sending ALIVEJOG message
+            self._jog_thread = threading.Thread(
+                target=self._bg_alivejog_thread, daemon=True
+            )
             self.jog_thread.start()
 
             hello_msg = f'INFO Hello "{application_name}" {application_version} {datetime.now(timezone.utc).strftime(format="%Y-%m-%dT%H:%M:%S")}'
 
             self._send_command(hello_msg)
 
+            self.connected = True
             return True
 
         except ConnectionRefusedError:
@@ -152,9 +173,11 @@ class CRIController:
 
         if self.jog_thread.is_alive():
             self.jog_thread.join()
+        self._jog_thread = None
 
         if self.receive_thread.is_alive():
             self.receive_thread.join()
+        self._receive_thread = None
 
         self.sock.close()
 
