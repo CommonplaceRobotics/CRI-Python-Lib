@@ -1,6 +1,8 @@
+import contextlib
 import logging
 import socket
 import threading
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -8,7 +10,7 @@ from queue import Empty, Queue
 from time import sleep, time
 from typing import Any, Callable, Literal
 
-from .cri_errors import CRICommandTimeOutError, CRIConnectionError
+from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
 from .robot_state import KinematicsState, RobotState
 
@@ -1400,3 +1402,74 @@ class CRIController(CRIClient):
 
 # Monkey patch to maintain backward compatibility
 CRIController.MotionType = MotionType  # type: ignore
+
+
+class CRIConnector:
+    """Factory providing context managers for connecting with clean resource lifecycle management.
+
+    The context managers will yield ``CRIClient`` or ``CRIController`` instances
+    and ensure that the connection is properly closed and resources disposed when the context is exited.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 3920,
+        application_name: str = "CRI-Python-Lib",
+        application_version: str = "0-0-0-0",
+    ) -> None:
+        """Create a factory for active or passive connection to the robot controller.
+
+        Parameters
+        ----------
+        host : str
+            IP address or hostname of iRC
+        port : int
+            port of iRC
+        application_name : str
+            optional name of your application sent to controller
+        application_version: str
+            optional version of your application sent to controller
+        """
+        # Remember connection parameters so that context entry methods don't need them.
+        self.host = host
+        self.port = port
+        self.application_name = application_name
+        self.application_version = application_version
+        super().__init__()
+
+    @contextlib.asynccontextmanager
+    async def observe(self) -> AsyncIterator[CRIClient]:
+        """Establish connection for reading robot state."""
+        client = CRIClient()
+        try:
+            client.connect(
+                self.host, self.port, self.application_name, self.application_version
+            )
+            yield client
+            # Graceful context exit; nothing to do other than disconnect in finally block.
+        finally:
+            client.close()
+        return
+
+    @contextlib.asynccontextmanager
+    async def control(self) -> AsyncIterator[CRIController]:
+        """Establish connection for controlling robot state."""
+        controller = CRIController()
+        try:
+            controller.connect(
+                self.host, self.port, self.application_name, self.application_version
+            )
+            # Take active control
+            if not controller.set_active_control(True):
+                raise CRICommandError("Failed to acquire active control.")
+            if not controller.enable():
+                raise CRICommandError("Failed to enable robot.")
+            if not controller.wait_for_kinematics_ready(10):
+                raise CRICommandError("Kinematics not ready.")
+            yield controller
+            # Graceful context exit: give up control and disable robot, then disconnect in finally block.
+            controller.disable()
+        finally:
+            controller.close()
+        return

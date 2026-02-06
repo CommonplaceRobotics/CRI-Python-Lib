@@ -2,7 +2,7 @@
 .. include:: ../README.md
 """
 
-from .cri_controller import CRIClient, CRIController, MotionType
+from .cri_controller import CRIClient, CRIConnector, CRIController, MotionType
 from .cri_errors import (
     CRICommandError,
     CRICommandTimeOutError,
