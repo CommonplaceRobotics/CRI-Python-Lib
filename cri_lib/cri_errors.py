@@ -10,6 +10,14 @@ class CRIConnectionError(CRIError):
         super().__init__(self.message)
 
 
+class CRICommandError(CRIError):
+    """Raised when a command fails to execute properly."""
+
+    def __init__(self, message="Command execution failed."):
+        self.message = message
+        super().__init__(self.message)
+
+
 class CRICommandTimeOutError(CRIError):
     """Raised when a command times out."""
 
