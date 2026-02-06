@@ -393,6 +393,80 @@ class CRIController:
         """
         self.status_callback = callback
 
+    def wait_for_kinematics_ready(self, timeout: float = 30) -> bool:
+        """Wait until drive state is indicated as ready.
+
+        Parameters
+        ----------
+        timeout : float
+            maximum time to wait in seconds
+
+        Returns
+        -------
+        bool
+            `True`if drives are ready, `False` if not ready or timeout
+        """
+        start_time = time()
+        new_timeout = timeout
+        while new_timeout > 0.0:
+            self.wait_for_status_update(timeout=new_timeout)
+            if (self.robot_state.kinematics_state == KinematicsState.NO_ERROR) and (
+                self.robot_state.combined_axes_error == "NoError"
+            ):
+                return True
+
+            new_timeout = timeout - (time() - start_time)
+
+        return False
+
+    def get_board_temperatures(
+        self,
+        blocking: bool = True,
+        timeout: float | None = DEFAULT,  # type: ignore
+    ) -> bool:
+        """Receive motor controller PCB temperatures and save in robot state
+
+        Parameters
+        ----------
+        blocking: bool
+            wait for response, always returns True if not waiting
+
+        timeout: float | None
+            timeout for waiting in seconds or None for infinite waiting
+        """
+        self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
+        if (
+            error_msg := self._wait_for_answer("info_boardtemp", timeout=timeout)
+        ) is not None:
+            logger.debug("Error in GetBoardTemp command: %s", error_msg)
+            return False
+        else:
+            return True
+
+    def get_motor_temperatures(
+        self,
+        blocking: bool = True,
+        timeout: float | None = DEFAULT,  # type: ignore
+    ) -> bool:
+        """Receive motor temperatures and save in robot state
+
+        Parameters
+        ----------
+        blocking: bool
+            wait for response, always returns True if not waiting
+
+        timeout: float | None
+            timeout for waiting in seconds or None for infinite waiting
+        """
+        self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
+        if (
+            error_msg := self._wait_for_answer("info_motortemp", timeout=timeout)
+        ) is not None:
+            logger.debug("Error in GetMotorTemp command: %s", error_msg)
+            return False
+        else:
+            return True
+
     def reset(self) -> bool:
         """Reset robot
 
@@ -540,32 +614,6 @@ class CRIController:
             return False
         else:
             return True
-
-    def wait_for_kinematics_ready(self, timeout: float = 30) -> bool:
-        """Wait until drive state is indicated as ready.
-
-        Parameters
-        ----------
-        timeout : float
-            maximum time to wait in seconds
-
-        Returns
-        -------
-        bool
-            `True`if drives are ready, `False` if not ready or timeout
-        """
-        start_time = time()
-        new_timeout = timeout
-        while new_timeout > 0.0:
-            self.wait_for_status_update(timeout=new_timeout)
-            if (self.robot_state.kinematics_state == KinematicsState.NO_ERROR) and (
-                self.robot_state.combined_axes_error == "NoError"
-            ):
-                return True
-
-            new_timeout = timeout - (time() - start_time)
-
-        return False
 
     def move_joints(
         self,
@@ -1322,54 +1370,6 @@ class CRIController:
             return None
 
         return item
-
-    def get_board_temperatures(
-        self,
-        blocking: bool = True,
-        timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
-        """Receive motor controller PCB temperatures and save in robot state
-
-        Parameters
-        ----------
-        blocking: bool
-            wait for response, always returns True if not waiting
-
-        timeout: float | None
-            timeout for waiting in seconds or None for infinite waiting
-        """
-        self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
-        if (
-            error_msg := self._wait_for_answer("info_boardtemp", timeout=timeout)
-        ) is not None:
-            logger.debug("Error in GetBoardTemp command: %s", error_msg)
-            return False
-        else:
-            return True
-
-    def get_motor_temperatures(
-        self,
-        blocking: bool = True,
-        timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
-        """Receive motor temperatures and save in robot state
-
-        Parameters
-        ----------
-        blocking: bool
-            wait for response, always returns True if not waiting
-
-        timeout: float | None
-            timeout for waiting in seconds or None for infinite waiting
-        """
-        self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
-        if (
-            error_msg := self._wait_for_answer("info_motortemp", timeout=timeout)
-        ) is not None:
-            logger.debug("Error in GetMotorTemp command: %s", error_msg)
-            return False
-        else:
-            return True
 
 
 # Monkey patch to maintain backward compatibility
