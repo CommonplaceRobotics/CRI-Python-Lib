@@ -1,14 +1,16 @@
+import contextlib
 import logging
 import socket
 import threading
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
 from time import sleep, time
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
-from .cri_errors import CRICommandTimeOutError, CRIConnectionError
+from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
 from .robot_state import KinematicsState, RobotState
 
@@ -28,30 +30,32 @@ class MotionType(Enum):
     Platform = "Platform"
 
 
-class CRIController:
-    """
-    Class implementing the CRI network protocol for igus Robot Control.
-    """
+class CRIClient:
+    """Client with implementations for read-only communication."""
 
     ALIVE_JOG_INTERVAL_SEC = 0.2
-    ACTIVE_JOG_INTERVAL_SEC = 0.02
     RECEIVE_TIMEOUT_SEC = 5
     DEFAULT_ANSWER_TIMEOUT = 10.0
 
     def __init__(self) -> None:
+        """Create a ``CRIClient`` without connecting it yet.
+
+        Call ``connect`` to connect and start receiving data.
+        """
         self.robot_state: RobotState = RobotState()
         self.robot_state_lock = threading.Lock()
 
         self.parser = CRIProtocolParser(self.robot_state, self.robot_state_lock)
 
         self.connected = False
-        self.sock: socket.socket | None = None
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket_write_lock = threading.Lock()
 
         self.can_mode: bool = False
         self.can_queue: Queue = Queue()
 
         self.jog_thread = threading.Thread(target=self._bg_alivejog_thread, daemon=True)
+        self.jog_intervall = self.ALIVE_JOG_INTERVAL_SEC
         self.receive_thread = threading.Thread(
             target=self._bg_receive_thread, daemon=True
         )
@@ -64,28 +68,13 @@ class CRIController:
 
         self.status_callback: Callable | None = None
 
-        self.live_jog_active: bool = False
-        self.jog_intervall = self.ALIVE_JOG_INTERVAL_SEC
-        self.jog_speeds: dict[str, float] = {
-            "A1": 0.0,
-            "A2": 0.0,
-            "A3": 0.0,
-            "A4": 0.0,
-            "A5": 0.0,
-            "A6": 0.0,
-            "E1": 0.0,
-            "E2": 0.0,
-            "E3": 0.0,
-        }
-        self.jog_speeds_lock = threading.Lock()
-
     def connect(
         self,
         host: str,
         port: int = 3920,
         application_name: str = "CRI-Python-Lib",
         application_version: str = "0-0-0-0",
-    ) -> bool:
+    ) -> Literal[True]:
         """
         Connect to iRC.
 
@@ -103,16 +92,21 @@ class CRIController:
         Returns
         -------
         bool
-            True if connected
-            False if not connected
+            True if connected.
+            Otherwise an exception is raised.
 
+        Raises
+        ------
+        CRIConnectionError
+            When already connected or connection fails.
         """
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self.connected:
+            raise CRIConnectionError("Already connected.")
         self.sock.settimeout(0.1)  # Set a timeout of 0.1 seconds
         try:
             ip = socket.gethostbyname(host)
             self.sock.connect((ip, port))
-            logger.debug("\t Robot connected: %s:%d", host, port)
+            # Mark as connected before starting threads
             self.connected = True
 
             # Start receiving commands
@@ -124,19 +118,15 @@ class CRIController:
             hello_msg = f'INFO Hello "{application_name}" {application_version} {datetime.now(timezone.utc).strftime(format="%Y-%m-%dT%H:%M:%S")}'
 
             self._send_command(hello_msg)
-
+            logger.debug("Connected to %s:%d", host, port)
             return True
 
         except ConnectionRefusedError:
-            logger.error(
-                "Connection refused: Unable to connect to %s:%i",
-                host,
-                port,
+            raise CRIConnectionError(
+                f"Connection refused: Unable to connect to {host}:{port}"
             )
-            return False
         except Exception as e:
-            logger.exception("An error occurred while attempting to connect.")
-            return False
+            raise CRIConnectionError("Failed to connect to iRC.") from e
 
     def close(self) -> None:
         """
@@ -169,6 +159,8 @@ class CRIController:
         fixed_answer_name: str | None = None,
     ) -> int:
         """Sends the given command to iRC.
+
+        The method is marked private because technically it can be used to send control commands as well.
 
         Parameters
         ----------
@@ -231,13 +223,7 @@ class CRIController:
         Background Thread sending alivejog messages to keep connection alive.
         """
         while self.connected:
-            if self.live_jog_active:
-                with self.jog_speeds_lock:
-                    command = f"ALIVEJOG {self.jog_speeds['A1']} {self.jog_speeds['A2']} {self.jog_speeds['A3']} {self.jog_speeds['A4']} {self.jog_speeds['A5']} {self.jog_speeds['A6']} {self.jog_speeds['E1']} {self.jog_speeds['E2']} {self.jog_speeds['E3']}"
-            else:
-                command = "ALIVEJOG 0 0 0 0 0 0 0 0 0"
-
-            if self._send_command(command) is None:
+            if self._send_command("ALIVEJOG 0 0 0 0 0 0 0 0 0") is None:
                 logger.error("AliveJog Thread: Connection lost.")
                 self.connected = False
                 return
@@ -392,6 +378,123 @@ class CRIController:
         """
         self.status_callback = callback
 
+    def wait_for_kinematics_ready(self, timeout: float = 30) -> bool:
+        """Wait until drive state is indicated as ready.
+
+        Parameters
+        ----------
+        timeout : float
+            maximum time to wait in seconds
+
+        Returns
+        -------
+        bool
+            `True`if drives are ready, `False` if not ready or timeout
+        """
+        start_time = time()
+        new_timeout = timeout
+        while new_timeout > 0.0:
+            self.wait_for_status_update(timeout=new_timeout)
+            if (self.robot_state.kinematics_state == KinematicsState.NO_ERROR) and (
+                self.robot_state.combined_axes_error == "NoError"
+            ):
+                return True
+
+            new_timeout = timeout - (time() - start_time)
+
+        return False
+
+    def get_board_temperatures(
+        self,
+        blocking: bool = True,
+        timeout: float | None = DEFAULT,  # type: ignore
+    ) -> bool:
+        """Receive motor controller PCB temperatures and save in robot state
+
+        Parameters
+        ----------
+        blocking: bool
+            wait for response, always returns True if not waiting
+
+        timeout: float | None
+            timeout for waiting in seconds or None for infinite waiting
+        """
+        self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
+        if (
+            error_msg := self._wait_for_answer("info_boardtemp", timeout=timeout)
+        ) is not None:
+            logger.debug("Error in GetBoardTemp command: %s", error_msg)
+            return False
+        else:
+            return True
+
+    def get_motor_temperatures(
+        self,
+        blocking: bool = True,
+        timeout: float | None = DEFAULT,  # type: ignore
+    ) -> bool:
+        """Receive motor temperatures and save in robot state
+
+        Parameters
+        ----------
+        blocking: bool
+            wait for response, always returns True if not waiting
+
+        timeout: float | None
+            timeout for waiting in seconds or None for infinite waiting
+        """
+        self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
+        if (
+            error_msg := self._wait_for_answer("info_motortemp", timeout=timeout)
+        ) is not None:
+            logger.debug("Error in GetMotorTemp command: %s", error_msg)
+            return False
+        else:
+            return True
+
+
+class CRIController(CRIClient):
+    """A connected ``CRIClient`` with control capabilities."""
+
+    ACTIVE_JOG_INTERVAL_SEC = 0.02
+
+    def __init__(self) -> None:
+        self.live_jog_active: bool = False
+        self.jog_intervall = self.ALIVE_JOG_INTERVAL_SEC
+        self.jog_speeds: dict[str, float] = {
+            "A1": 0.0,
+            "A2": 0.0,
+            "A3": 0.0,
+            "A4": 0.0,
+            "A5": 0.0,
+            "A6": 0.0,
+            "E1": 0.0,
+            "E2": 0.0,
+            "E3": 0.0,
+        }
+        self.jog_speeds_lock = threading.Lock()
+        super().__init__()
+
+    def _bg_alivejog_thread(self) -> None:
+        """Overrides the ``CRIClient._bg_alivejog_thread`` to send alivejog messages with possibly nonzero jog speeds."""
+        while self.connected:
+            if self.live_jog_active:
+                with self.jog_speeds_lock:
+                    command = f"ALIVEJOG {self.jog_speeds['A1']} {self.jog_speeds['A2']} {self.jog_speeds['A3']} {self.jog_speeds['A4']} {self.jog_speeds['A5']} {self.jog_speeds['A6']} {self.jog_speeds['E1']} {self.jog_speeds['E2']} {self.jog_speeds['E3']}"
+            else:
+                command = "ALIVEJOG 0 0 0 0 0 0 0 0 0"
+
+            if self._send_command(command) is None:
+                logger.error("AliveJog Thread: Connection lost.")
+                self.connected = False
+                return
+
+            sleep(self.jog_intervall)
+
+    def send_command(self, command, register_answer=False, fixed_answer_name=None):
+        """Wraps the superclass method to make it public."""
+        return super()._send_command(command, register_answer, fixed_answer_name)
+
     def reset(self) -> bool:
         """Reset robot
 
@@ -539,32 +642,6 @@ class CRIController:
             return False
         else:
             return True
-
-    def wait_for_kinematics_ready(self, timeout: float = 30) -> bool:
-        """Wait until drive state is indicated as ready.
-
-        Parameters
-        ----------
-        timeout : float
-            maximum time to wait in seconds
-
-        Returns
-        -------
-        bool
-            `True`if drives are ready, `False` if not ready or timeout
-        """
-        start_time = time()
-        new_timeout = timeout
-        while new_timeout > 0.0:
-            self.wait_for_status_update(timeout=new_timeout)
-            if (self.robot_state.kinematics_state == KinematicsState.NO_ERROR) and (
-                self.robot_state.combined_axes_error == "NoError"
-            ):
-                return True
-
-            new_timeout = timeout - (time() - start_time)
-
-        return False
 
     def move_joints(
         self,
@@ -1322,54 +1399,77 @@ class CRIController:
 
         return item
 
-    def get_board_temperatures(
-        self,
-        blocking: bool = True,
-        timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
-        """Receive motor controller PCB temperatures and save in robot state
-
-        Parameters
-        ----------
-        blocking: bool
-            wait for response, always returns True if not waiting
-
-        timeout: float | None
-            timeout for waiting in seconds or None for infinite waiting
-        """
-        self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
-        if (
-            error_msg := self._wait_for_answer("info_boardtemp", timeout=timeout)
-        ) is not None:
-            logger.debug("Error in GetBoardTemp command: %s", error_msg)
-            return False
-        else:
-            return True
-
-    def get_motor_temperatures(
-        self,
-        blocking: bool = True,
-        timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
-        """Receive motor temperatures and save in robot state
-
-        Parameters
-        ----------
-        blocking: bool
-            wait for response, always returns True if not waiting
-
-        timeout: float | None
-            timeout for waiting in seconds or None for infinite waiting
-        """
-        self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
-        if (
-            error_msg := self._wait_for_answer("info_motortemp", timeout=timeout)
-        ) is not None:
-            logger.debug("Error in GetMotorTemp command: %s", error_msg)
-            return False
-        else:
-            return True
-
 
 # Monkey patch to maintain backward compatibility
 CRIController.MotionType = MotionType  # type: ignore
+
+
+class CRIConnector:
+    """Factory providing context managers for connecting with clean resource lifecycle management.
+
+    The context managers will yield ``CRIClient`` or ``CRIController`` instances
+    and ensure that the connection is properly closed and resources disposed when the context is exited.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 3920,
+        application_name: str = "CRI-Python-Lib",
+        application_version: str = "0-0-0-0",
+    ) -> None:
+        """Create a factory for active or passive connection to the robot controller.
+
+        Parameters
+        ----------
+        host : str
+            IP address or hostname of iRC
+        port : int
+            port of iRC
+        application_name : str
+            optional name of your application sent to controller
+        application_version: str
+            optional version of your application sent to controller
+        """
+        # Remember connection parameters so that context entry methods don't need them.
+        self.host = host
+        self.port = port
+        self.application_name = application_name
+        self.application_version = application_version
+        super().__init__()
+
+    @contextlib.asynccontextmanager
+    async def observe(self) -> AsyncIterator[CRIClient]:
+        """Establish connection for reading robot state."""
+        client = CRIClient()
+        try:
+            client.connect(
+                self.host, self.port, self.application_name, self.application_version
+            )
+            yield client
+            # Graceful context exit; nothing to do other than disconnect in finally block.
+        finally:
+            client.close()
+        return
+
+    @contextlib.asynccontextmanager
+    async def control(self) -> AsyncIterator[CRIController]:
+        """Establish connection for controlling robot state."""
+        controller = CRIController()
+        try:
+            controller.connect(
+                self.host, self.port, self.application_name, self.application_version
+            )
+            # Take active control
+            if not controller.set_active_control(True):
+                raise CRICommandError("Failed to acquire active control.")
+            if not controller.enable():
+                raise CRICommandError("Failed to enable robot.")
+            if not controller.wait_for_kinematics_ready(10):
+                raise CRICommandError("Kinematics not ready.")
+            yield controller
+            # Graceful context exit: give up control and disable robot, then disconnect in finally block.
+            controller.disable()
+        finally:
+            controller.close()
+        return
