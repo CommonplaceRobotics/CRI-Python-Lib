@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
 from time import sleep, time
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from .cri_errors import CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
@@ -45,7 +45,7 @@ class CRIController:
         self.parser = CRIProtocolParser(self.robot_state, self.robot_state_lock)
 
         self.connected = False
-        self.sock: socket.socket | None = None
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket_write_lock = threading.Lock()
 
         self.can_mode: bool = False
@@ -85,7 +85,7 @@ class CRIController:
         port: int = 3920,
         application_name: str = "CRI-Python-Lib",
         application_version: str = "0-0-0-0",
-    ) -> bool:
+    ) -> Literal[True]:
         """
         Connect to iRC.
 
@@ -103,16 +103,21 @@ class CRIController:
         Returns
         -------
         bool
-            True if connected
-            False if not connected
+            True if connected.
+            Otherwise an exception is raised.
 
+        Raises
+        ------
+        CRIConnectionError
+            When already connected or connection fails.
         """
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self.connected:
+            raise CRIConnectionError("Already connected.")
         self.sock.settimeout(0.1)  # Set a timeout of 0.1 seconds
         try:
             ip = socket.gethostbyname(host)
             self.sock.connect((ip, port))
-            logger.debug("\t Robot connected: %s:%d", host, port)
+            # Mark as connected before starting threads
             self.connected = True
 
             # Start receiving commands
@@ -124,19 +129,15 @@ class CRIController:
             hello_msg = f'INFO Hello "{application_name}" {application_version} {datetime.now(timezone.utc).strftime(format="%Y-%m-%dT%H:%M:%S")}'
 
             self._send_command(hello_msg)
-
+            logger.debug("Connected to %s:%d", host, port)
             return True
 
         except ConnectionRefusedError:
-            logger.error(
-                "Connection refused: Unable to connect to %s:%i",
-                host,
-                port,
+            raise CRIConnectionError(
+                f"Connection refused: Unable to connect to {host}:{port}"
             )
-            return False
         except Exception as e:
-            logger.exception("An error occurred while attempting to connect.")
-            return False
+            raise CRIConnectionError("Failed to connect to iRC.") from e
 
     def close(self) -> None:
         """
