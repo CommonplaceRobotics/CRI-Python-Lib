@@ -28,17 +28,18 @@ class MotionType(Enum):
     Platform = "Platform"
 
 
-class CRIController:
-    """
-    Class implementing the CRI network protocol for igus Robot Control.
-    """
+class CRIClient:
+    """Client with implementations for read-only communication."""
 
     ALIVE_JOG_INTERVAL_SEC = 0.2
-    ACTIVE_JOG_INTERVAL_SEC = 0.02
     RECEIVE_TIMEOUT_SEC = 5
     DEFAULT_ANSWER_TIMEOUT = 10.0
 
     def __init__(self) -> None:
+        """Create a ``CRIClient`` without connecting it yet.
+
+        Call ``connect`` to connect and start receiving data.
+        """
         self.robot_state: RobotState = RobotState()
         self.robot_state_lock = threading.Lock()
 
@@ -52,6 +53,7 @@ class CRIController:
         self.can_queue: Queue = Queue()
 
         self.jog_thread = threading.Thread(target=self._bg_alivejog_thread, daemon=True)
+        self.jog_intervall = self.ALIVE_JOG_INTERVAL_SEC
         self.receive_thread = threading.Thread(
             target=self._bg_receive_thread, daemon=True
         )
@@ -63,21 +65,6 @@ class CRIController:
         self.error_messages: dict[str, str] = {}
 
         self.status_callback: Callable | None = None
-
-        self.live_jog_active: bool = False
-        self.jog_intervall = self.ALIVE_JOG_INTERVAL_SEC
-        self.jog_speeds: dict[str, float] = {
-            "A1": 0.0,
-            "A2": 0.0,
-            "A3": 0.0,
-            "A4": 0.0,
-            "A5": 0.0,
-            "A6": 0.0,
-            "E1": 0.0,
-            "E2": 0.0,
-            "E3": 0.0,
-        }
-        self.jog_speeds_lock = threading.Lock()
 
     def connect(
         self,
@@ -171,6 +158,8 @@ class CRIController:
     ) -> int:
         """Sends the given command to iRC.
 
+        The method is marked private because technically it can be used to send control commands as well.
+
         Parameters
         ----------
         command : str
@@ -232,13 +221,7 @@ class CRIController:
         Background Thread sending alivejog messages to keep connection alive.
         """
         while self.connected:
-            if self.live_jog_active:
-                with self.jog_speeds_lock:
-                    command = f"ALIVEJOG {self.jog_speeds['A1']} {self.jog_speeds['A2']} {self.jog_speeds['A3']} {self.jog_speeds['A4']} {self.jog_speeds['A5']} {self.jog_speeds['A6']} {self.jog_speeds['E1']} {self.jog_speeds['E2']} {self.jog_speeds['E3']}"
-            else:
-                command = "ALIVEJOG 0 0 0 0 0 0 0 0 0"
-
-            if self._send_command(command) is None:
+            if self._send_command("ALIVEJOG 0 0 0 0 0 0 0 0 0") is None:
                 logger.error("AliveJog Thread: Connection lost.")
                 self.connected = False
                 return
@@ -466,6 +449,49 @@ class CRIController:
             return False
         else:
             return True
+
+
+class CRIController(CRIClient):
+    """A connected ``CRIClient`` with control capabilities."""
+
+    ACTIVE_JOG_INTERVAL_SEC = 0.02
+
+    def __init__(self) -> None:
+        self.live_jog_active: bool = False
+        self.jog_intervall = self.ALIVE_JOG_INTERVAL_SEC
+        self.jog_speeds: dict[str, float] = {
+            "A1": 0.0,
+            "A2": 0.0,
+            "A3": 0.0,
+            "A4": 0.0,
+            "A5": 0.0,
+            "A6": 0.0,
+            "E1": 0.0,
+            "E2": 0.0,
+            "E3": 0.0,
+        }
+        self.jog_speeds_lock = threading.Lock()
+        super().__init__()
+
+    def _bg_alivejog_thread(self) -> None:
+        """Overrides the ``CRIClient._bg_alivejog_thread`` to send alivejog messages with possibly nonzero jog speeds."""
+        while self.connected:
+            if self.live_jog_active:
+                with self.jog_speeds_lock:
+                    command = f"ALIVEJOG {self.jog_speeds['A1']} {self.jog_speeds['A2']} {self.jog_speeds['A3']} {self.jog_speeds['A4']} {self.jog_speeds['A5']} {self.jog_speeds['A6']} {self.jog_speeds['E1']} {self.jog_speeds['E2']} {self.jog_speeds['E3']}"
+            else:
+                command = "ALIVEJOG 0 0 0 0 0 0 0 0 0"
+
+            if self._send_command(command) is None:
+                logger.error("AliveJog Thread: Connection lost.")
+                self.connected = False
+                return
+
+            sleep(self.jog_intervall)
+
+    def send_command(self, command, register_answer=False, fixed_answer_name=None):
+        """Wraps the superclass method to make it public."""
+        return super()._send_command(command, register_answer, fixed_answer_name)
 
     def reset(self) -> bool:
         """Reset robot
