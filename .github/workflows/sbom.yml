@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python 3.x
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v6
       with:
         python-version: "3.x"
     - name: Install dependencies
@@ -32,6 +32,13 @@ jobs:
       working-directory: ./
       run: |
         python -m cyclonedx_py requirements > ~/output/sbom.json
+
+    - name: Scan for vulnerabilities
+      uses: anchore/scan-action@v7
+      with:
+        sbom: ~/output/sbom.json
+        output-format: table
+        output-file: ~/output/vulnerabilities.txt
 
     - uses: actions/upload-artifact@v6
       with:
