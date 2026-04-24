@@ -33,14 +33,13 @@ jobs:
       run: |
         python -m cyclonedx_py requirements > ~/output/sbom.json
 
+    - uses: actions/upload-artifact@v7
+      with:
+        name: SBOM
+        path: ~/output/sbom.json
+        archive: false
+
     - name: Scan for vulnerabilities
       uses: anchore/scan-action@v7
       with:
         sbom: ~/output/sbom.json
-        output-format: table
-        output-file: ~/output/vulnerabilities.txt
-
-    - uses: actions/upload-artifact@v6
-      with:
-        name: SBOM
-        path: ~/output/
