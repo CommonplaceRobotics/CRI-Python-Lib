@@ -32,6 +32,7 @@ class CRIProtocolParser:
         self.robot_state_lock = robot_state_lock
         self.file_list: list = []
         self.file_list_lock: Lock = threading.Lock()
+        self.robot_joint_count = 0
 
     def parse_message(
         self, message: str
@@ -122,6 +123,11 @@ class CRIProtocolParser:
         """
         segment_start_idx = 0
 
+        r_cnt = self.robot_state.robot_axes_count
+        e_cnt = self.robot_state.external_axes_count
+        t_cnt = self.robot_state.tool_axes_count
+        p_cnt = self.robot_state.platform_axes_count
+
         while segment_start_idx < len(parameters):
             match parameters[segment_start_idx]:
                 case "MODE":
@@ -132,18 +138,48 @@ class CRIProtocolParser:
                     segment_start_idx += 2
 
                 case "POSJOINTSETPOINT":
-                    joints = []
+                    joints = [0.0] * 16  # array of 16 elements
                     for i in range(16):
-                        joints.append(float(parameters[segment_start_idx + 1 + i]))
+                        # external axes follow immediately after the last robot axis
+                        # therefore we need to reorder the entries
+                        if i < self.robot_state.robot_axes_count:  # robot axes
+                            joints[i] = float(parameters[segment_start_idx + 1 + i])
+                        elif i < r_cnt + e_cnt:  # external axes
+                            joints[6 + i - r_cnt] = float(
+                                parameters[segment_start_idx + 1 + i]
+                            )
+                        elif i < r_cnt + e_cnt + t_cnt:  # tool axes
+                            joints[9 + i - r_cnt - e_cnt] = float(
+                                parameters[segment_start_idx + 1 + i]
+                            )
+                        elif i < r_cnt + e_cnt + t_cnt + p_cnt:  # platform axes
+                            joints[12 + i - r_cnt - e_cnt - t_cnt] = float(
+                                parameters[segment_start_idx + 1 + i]
+                            )
 
                     with self.robot_state_lock:
                         self.robot_state.joints_set_point = JointsState(*joints)
                     segment_start_idx += 17
 
                 case "POSJOINTCURRENT":
-                    joints = []
+                    joints = [0.0] * 16  # array of 16 elements
                     for i in range(16):
-                        joints.append(float(parameters[segment_start_idx + 1 + i]))
+                        # external axes follow immediately after the last robot axis
+                        # therefore we need to reorder the entries
+                        if i < self.robot_state.robot_axes_count:  # robot axes
+                            joints[i] = float(parameters[segment_start_idx + 1 + i])
+                        elif i < r_cnt + e_cnt:  # external axes
+                            joints[6 + i - r_cnt] = float(
+                                parameters[segment_start_idx + 1 + i]
+                            )
+                        elif i < r_cnt + e_cnt + t_cnt:  # tool axes
+                            joints[9 + i - r_cnt - e_cnt] = float(
+                                parameters[segment_start_idx + 1 + i]
+                            )
+                        elif i < r_cnt + e_cnt + t_cnt + p_cnt:  # platform axes
+                            joints[12 + i - r_cnt - e_cnt - t_cnt] = float(
+                                parameters[segment_start_idx + 1 + i]
+                            )
 
                     with self.robot_state_lock:
                         self.robot_state.joints_current = JointsState(*joints)
@@ -212,29 +248,55 @@ class CRIProtocolParser:
                     segment_start_idx += 2
 
                 case "CURRENTJOINTS":
-                    currents = []
+                    currents = [0.0] * 16  # array of 16 elements
                     for i in range(16):
-                        currents.append(
-                            float(int(parameters[segment_start_idx + 1 + i])) / 1000
-                        )
+                        # external axes follow immediately after the last robot axis
+                        # therefore we need to reorder the entries
+                        if i < self.robot_state.robot_axes_count:  # robot axes
+                            currents[i] = (
+                                float(parameters[segment_start_idx + 1 + i]) / 1000
+                            )
+                        elif i < r_cnt + e_cnt:  # external axes
+                            currents[6 + i - r_cnt] = (
+                                float(parameters[segment_start_idx + 1 + i]) / 1000
+                            )
+                        elif i < r_cnt + e_cnt + t_cnt:  # tool axes
+                            currents[9 + i - r_cnt - e_cnt] = (
+                                float(parameters[segment_start_idx + 1 + i]) / 1000
+                            )
+                        elif i < r_cnt + e_cnt + t_cnt + p_cnt:  # platform axes
+                            currents[12 + i - r_cnt - e_cnt - t_cnt] = (
+                                float(parameters[segment_start_idx + 1 + i]) / 1000
+                            )
 
                     with self.robot_state_lock:
                         self.robot_state.current_joints = currents
                     segment_start_idx += 17
 
                 case "ERROR":
-                    errors = []
+                    errors = [ErrorStates()] * 16
                     self.robot_state.combined_axes_error = parameters[
                         segment_start_idx + 1
                     ]
-                    for axis_idx in range(16):
-                        value_int = int(
-                            parameters[segment_start_idx + 2 + axis_idx], base=10
-                        )
+                    for i in range(16):
+                        value_int = int(parameters[segment_start_idx + 2 + i], base=10)
                         error_bits = []
-                        for i in range(8):
-                            error_bits.append(value_int & (1 << i) != 0)
-                        errors.append(ErrorStates(*error_bits))
+                        for j in range(8):
+                            error_bits.append(value_int & (1 << j) != 0)
+
+                        # external axes follow immediately after the last robot axis
+                        # therefore we need to reorder the entries
+                        if i < self.robot_state.robot_axes_count:  # robot axes
+                            errors[i] = ErrorStates(*error_bits)
+                        elif i < r_cnt + e_cnt:  # external axes
+                            errors[6 + i - r_cnt] = ErrorStates(*error_bits)
+                        elif i < r_cnt + e_cnt + t_cnt:  # tool axes
+                            errors[9 + i - r_cnt - e_cnt] = ErrorStates(*error_bits)
+                        elif i < r_cnt + e_cnt + t_cnt + p_cnt:  # platform axes
+                            errors[12 + i - r_cnt - e_cnt - t_cnt] = ErrorStates(
+                                *error_bits
+                            )
+
                     with self.robot_state_lock:
                         self.robot_state.error_states = errors
                     segment_start_idx += 18
@@ -531,6 +593,42 @@ class CRIProtocolParser:
         if parameters[0] == "ProjectFile":
             with self.robot_state_lock:
                 self.robot_state.project_file = parameters[1]
+
+        if parameters[0] == "Axes":
+            with self.robot_state_lock:
+                self.robot_state.robot_axes_count = 0
+                self.robot_state.external_axes_count = 0
+                self.robot_state.tool_axes_count = 0
+                self.robot_state.platform_axes_count = 0
+
+                # Count axes of each type
+                # Each axis description follows this format: A1 canid posmin posmax velmax
+                # Where A is the axis type and 1 is the index within that type
+                for param in parameters[1:]:
+                    if (
+                        param.startswith("A")
+                        and len(param) == 2
+                        and param[1].isnumeric()
+                    ):
+                        self.robot_state.robot_axes_count += 1
+                    if (
+                        param.startswith("E")
+                        and len(param) == 2
+                        and param[1].isnumeric()
+                    ):
+                        self.robot_state.external_axes_count += 1
+                    if (
+                        param.startswith("T")
+                        and len(param) == 2
+                        and param[1].isnumeric()
+                    ):
+                        self.robot_state.tool_axes_count += 1
+                    if (
+                        param.startswith("P")
+                        and len(param) == 2
+                        and param[1].isnumeric()
+                    ):
+                        self.robot_state.platform_axes_count += 1
 
     def _parse_cmderror(self, parameters: Sequence[str]) -> dict[str, str]:
         """Parses a CMDERROR message to notify calling function

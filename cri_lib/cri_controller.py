@@ -121,9 +121,13 @@ class CRIClient:
             # Start sending ALIVEJOG message
             self.jog_thread.start()
 
+            # Send hello message, this lets the robot control know who we are and what our time is (for logging / troubleshooting)
             hello_msg = f'INFO Hello "{application_name}" {application_version} {datetime.now(timezone.utc).strftime(format="%Y-%m-%dT%H:%M:%S")}'
-
             self._send_command(hello_msg)
+
+            # Request the axis count, this is needed for interpreting some messages
+            self._send_command("CONFIG GetAxes")
+
             logger.debug("Connected to %s:%d", host, port)
             return True
 
