@@ -48,6 +48,9 @@ class CRIClient:
         self.robot_state: RobotState = RobotState()
         self.robot_state_lock = threading.Lock()
 
+        self.file_list: list = []
+        self.file_list_lock: threading.Lock = threading.Lock()
+
         self.parser = CRIProtocolParser(self.robot_state, self.robot_state_lock)
 
         self.connected = False
@@ -342,6 +345,9 @@ class CRIClient:
             if notification["answer"] == "CAN":
                 self.can_queue.put_nowait(notification["can"])
 
+            if notification["answer"] == "info_filelist":
+                self.file_list = self.parser.file_list
+
             with self.answer_events_lock:
                 msg_id = notification["answer"]
 
@@ -455,6 +461,39 @@ class CRIClient:
         else:
             return True
 
+    def list_files(self, target_directory: str = "Programs") -> bool:
+        """Request a list of all files in the directory, which is relative to the /Data/ directory.
+
+        Parameters
+        ----------
+        directory : str
+            directory on iRC `/Data/<target_directory>` in which files are located, e.g. `Programs` for normal robot programs
+
+        Returns
+        -------
+        a list of files
+        """
+
+        command = f"CMD ListFiles {target_directory}"
+
+        if (
+            self._send_command(
+                command=command, register_answer=True, fixed_answer_name="info_filelist"
+            )
+            is not None
+        ):
+            if (
+                error_msg := self._wait_for_answer(
+                    "info_filelist", timeout=self.DEFAULT_ANSWER_TIMEOUT
+                )
+            ) is not None:
+                logger.debug("Error in ListFiles command: %s", error_msg)
+                return False
+            else:
+                return True
+        else:
+            return False
+
 
 class CRIController(CRIClient):
     """A connected ``CRIClient`` with control capabilities."""
@@ -476,6 +515,7 @@ class CRIController(CRIClient):
             "E3": 0.0,
         }
         self.jog_speeds_lock = threading.Lock()
+        self.file_list: list = []
         super().__init__()
 
     def _bg_alivejog_thread(self) -> None:

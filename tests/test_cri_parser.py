@@ -613,3 +613,17 @@ def test_info_motortemps():
 
     assert controller.answer_events["info_motortemp"].is_set()
     assert controller.robot_state.motor_temps == pytest.approx(motor_temps)
+
+
+def test_list_files():
+    test_message = (
+        "CRISTART 1234 INFO FileList BaseDir FirstFile.xml SecondFile.txt CRIEND"
+    )
+
+    controller = CRIController()
+    controller.answer_events["info_filelist"] = threading.Event()
+    controller._parse_message(test_message)
+
+    assert controller.answer_events["info_filelist"].is_set()
+    assert "FirstFile.xml" in controller.file_list
+    assert "SecondFile.txt" in controller.file_list

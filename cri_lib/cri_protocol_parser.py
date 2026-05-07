@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from threading import Lock
 from typing import Any, Sequence
@@ -29,6 +30,8 @@ class CRIProtocolParser:
     def __init__(self, robot_state: RobotState, robot_state_lock: Lock):
         self.robot_state = robot_state
         self.robot_state_lock = robot_state_lock
+        self.file_list: list = []
+        self.file_list_lock: Lock = threading.Lock()
 
     def parse_message(
         self, message: str
@@ -582,6 +585,7 @@ class CRIProtocolParser:
                 self.robot_state.referencing_state = ref_state
 
             return "info_referencing"
+
         elif parameters[0] == "BoardTemp":
             temperatures = [float(param) for param in parameters[1:]]
 
@@ -589,6 +593,7 @@ class CRIProtocolParser:
                 self.robot_state.board_temps = temperatures
 
             return "info_boardtemp"
+
         elif parameters[0] == "MotorTemp":
             temperatures = [float(param) for param in parameters[1:]]
 
@@ -596,6 +601,16 @@ class CRIProtocolParser:
                 self.robot_state.motor_temps = temperatures
 
             return "info_motortemp"
+
+        elif parameters[0] == "FileList":
+            with self.file_list_lock:
+                self.file_list.clear()  # direct point to parameters[] will break the shared reference
+                self.file_list.extend(
+                    parameters[2:]
+                )  # first element is the target_folder
+                print(self.file_list)
+            return "info_filelist"
+
         else:
             return None
 
