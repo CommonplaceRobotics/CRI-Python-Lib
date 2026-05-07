@@ -197,11 +197,23 @@ class RobotState:
     mode: RobotMode = RobotMode.JOINT
     """Robot execution mode"""
 
+    robot_axes_count: int = 0
+    """Number of robot axes"""
+    external_axes_count: int = 0
+    """Number of external axes"""
+    tool_axes_count: int = 0
+    """Number of tool axes"""
+    platform_axes_count: int = 0
+    """Number of mobile platform axes"""
+
     joints_set_point: JointsState = field(default_factory=JointsState)
-    """Set point of robot joints"""
+    """Target positions of the axes. This position is calculated by the kinematics."""
 
     joints_current: JointsState = field(default_factory=JointsState)
-    """Actual values of robot joints"""
+    """
+    Actual hardware positions of the axes. Generally use joints_set_point as
+    base values for moving the robot to avoid creating a control loop!
+    """
 
     position_robot: RobotCartesianPosition = field(
         default_factory=RobotCartesianPosition

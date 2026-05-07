@@ -34,6 +34,8 @@ def robot_state_equal(actual: RobotState, expected: RobotState) -> bool:
 
 
 def test_parse_state():
+    """This tests parsing the STATUS message with the assumption that all possible axes are present"""
+
     test_message = """
 CRISTART 1234 STATUS MODE joint
 POSJOINTSETPOINT 1.00 2.00 3.00 4.00 5.00 6.00 7.00 8.00 9.00 10.00 11.00 12.00 13.00 14.00 15.00 16.00
@@ -55,6 +57,10 @@ CRIEND
     """
 
     robot_state_correct = RobotState()
+    robot_state_correct.robot_axes_count = 6
+    robot_state_correct.external_axes_count = 3
+    robot_state_correct.tool_axes_count = 3
+    robot_state_correct.platform_axes_count = 4
     robot_state_correct.category_time_ns["STATUS"] = 0
     robot_state_correct.mode = RobotMode.JOINT
     robot_state_correct.joints_set_point = JointsState(
@@ -145,8 +151,231 @@ CRIEND
     robot_state_correct.combined_axes_error = "no_error"
 
     controller = CRIController()
+    controller.parser.robot_state.robot_axes_count = 6
+    controller.parser.robot_state.external_axes_count = 3
+    controller.parser.robot_state.tool_axes_count = 3
+    controller.parser.robot_state.platform_axes_count = 4
     controller._parse_message(test_message)
 
+    assert robot_state_equal(controller.robot_state, robot_state_correct)
+
+
+def test_parse_state2():
+    """This tests parsing the STATUS message with missing axes"""
+
+    test_message = """
+CRISTART 1234 STATUS MODE joint
+POSJOINTSETPOINT 1.00 2.00 3.00 4.00 5.00 6.00 7.00 8.00 9.00 10.00 11.00 12.00 13.00 14.00 15.00 16.00
+POSJOINTCURRENT 1.00 2.00 3.00 4.00 5.00 6.00 7.00 8.00 9.00 10.00 11.00 12.00 13.00 14.00 15.00 16.00
+POSCARTROBOT 10.0 20.0 30.0 0.00 90.00 0.00
+POSCARTPLATFORM 10.0 20.0 180.00
+OVERRIDE 80.0
+DIN 0000000000000FF00 DOUT 0000000000000FF00
+ESTOP 3 SUPPLY 23000 CURRENTALL 2600
+CURRENTJOINTS 10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160
+ERROR no_error 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+KINSTATE 30
+OPMODE -1
+CARTSPEED 123.4
+GSIG 00ff00ff00ff
+FRAMEROBOT MyFrame 1.0 2.0 3.0 4.0 5.0 6.0
+UNKNOWNSEGMENT 1 2 3 4
+CRIEND
+    """
+
+    robot_state_correct = RobotState()
+    robot_state_correct.robot_axes_count = 3
+    robot_state_correct.external_axes_count = 2
+    robot_state_correct.tool_axes_count = 1
+    robot_state_correct.platform_axes_count = 2
+    robot_state_correct.category_time_ns["STATUS"] = 0
+    robot_state_correct.mode = RobotMode.JOINT
+    robot_state_correct.joints_set_point = JointsState(
+        1.00,
+        2.00,
+        3.00,
+        0.00,
+        0.00,
+        0.00,
+        4.00,
+        5.00,
+        0.00,
+        6.00,
+        0.00,
+        0.00,
+        7.00,
+        8.00,
+        0.00,
+        0.00,
+    )
+    robot_state_correct.joints_current = JointsState(
+        1.00,
+        2.00,
+        3.00,
+        0.00,
+        0.00,
+        0.00,
+        4.00,
+        5.00,
+        0.00,
+        6.00,
+        0.00,
+        0.00,
+        7.00,
+        8.00,
+        0.00,
+        0.00,
+    )
+    es0 = ErrorStates()
+    es255 = ErrorStates(True, True, True, True, True, True, True, True)
+    robot_state_correct.position_robot = RobotCartesianPosition(
+        10.0, 20.0, 30.0, 0.0, 90.0, 0.00
+    )
+    robot_state_correct.position_platform = PlatformCartesianPosition(10.0, 20.0, 180.0)
+    robot_state_correct.override = 80.0
+    robot_state_correct.din = [False] * 64
+    robot_state_correct.din[8:16] = [True] * 8
+    robot_state_correct.dout = [False] * 64
+    robot_state_correct.dout[8:16] = [True] * 8
+    robot_state_correct.emergency_stop_ok = True
+    robot_state_correct.main_relay = True
+    robot_state_correct.supply_voltage = 23.0
+    robot_state_correct.current_total = 2.6
+    robot_state_correct.current_joints = [i * 10 for i in range(1, 17)]
+    # robot_state_correct.error_states = [ErrorStates(*([True] * 8))] * 16
+    robot_state_correct.error_states = [
+        es255,
+        es255,
+        es255,
+        es0,
+        es0,
+        es0,
+        es255,
+        es255,
+        es0,
+        es255,
+        es0,
+        es0,
+        es255,
+        es255,
+        es0,
+        es0,
+    ]
+    robot_state_correct.kinematics_state = KinematicsState(30)
+    robot_state_correct.operation_mode = OperationMode(-1)
+    robot_state_correct.cart_speed_mm_per_s = 123.4
+    robot_state_correct.global_signals = (
+        [True] * 8
+        + [False] * 8
+        + [True] * 8
+        + [False] * 8
+        + [True] * 8
+        + [False] * 8
+        + [False] * 80
+    )
+    robot_state_correct.frame_name = "MyFrame"
+    robot_state_correct.frame_position_current = RobotCartesianPosition(
+        1.0, 2.0, 3.0, 4.0, 5.0, 6.0
+    )
+    robot_state_correct.current_joints = [
+        0.01,
+        0.02,
+        0.03,
+        0.00,
+        0.00,
+        0.0,
+        0.04,
+        0.05,
+        0.00,
+        0.06,
+        0.00,
+        0.00,
+        0.07,
+        0.08,
+        0.00,
+        0.00,
+    ]
+    robot_state_correct.combined_axes_error = "no_error"
+
+    controller = CRIController()
+    # controller.parser.robot_state.robot_axes_count = 3
+    # controller.parser.robot_state.external_axes_count = 2
+    # controller.parser.robot_state.tool_axes_count = 1
+    # controller.parser.robot_state.platform_axes_count = 2
+    # Read axis counts from config message
+    controller._parse_message(
+        "CRISTART 1234 CONFIG Axes A1 1 2 3 4 A2 1 2 3 4 A3 1 2 3 4 E1 1 2 3 4 E2 1 2 3 4 T1 1 2 3 4 P1 1 2 3 4 P2 1 2 3 4"
+    )
+    controller._parse_message(test_message)
+
+    # ignore the category time
+    robot_state_correct.category_time_ns = controller.robot_state.category_time_ns
+    print(controller.robot_state)
+    print(robot_state_correct)
+    assert robot_state_equal(controller.robot_state, robot_state_correct)
+
+
+def test_parse_config_axes1():
+    """Tests parsing CONFIG Axis with all possible axes"""
+
+    test_message = "CRISTART 1234 CONFIG Axes A1 1 2 3 4 A2 1 2 3 4 A3 1 2 3 4 A4 1 2 3 4 A5 1 2 3 4 A6 1 2 3 4 E1 1 2 3 4 E2 1 2 3 4 E3 1 2 3 4 T1 1 2 3 4 T2 1 2 3 4 T3 1 2 3 4 P1 1 2 3 4 P2 1 2 3 4 P3 1 2 3 4 P4 1 2 3 4"
+
+    robot_state_correct = RobotState()
+    robot_state_correct.robot_axes_count = 6
+    robot_state_correct.external_axes_count = 3
+    robot_state_correct.tool_axes_count = 3
+    robot_state_correct.platform_axes_count = 4
+
+    controller = CRIController()
+    controller._parse_message(test_message)
+
+    assert (
+        controller.robot_state.robot_axes_count == robot_state_correct.robot_axes_count
+    )
+    assert (
+        controller.robot_state.external_axes_count
+        == robot_state_correct.external_axes_count
+    )
+    assert controller.robot_state.tool_axes_count == robot_state_correct.tool_axes_count
+    assert (
+        controller.robot_state.platform_axes_count
+        == robot_state_correct.platform_axes_count
+    )
+
+    # ignore the category time
+    robot_state_correct.category_time_ns = controller.robot_state.category_time_ns
+    assert robot_state_equal(controller.robot_state, robot_state_correct)
+
+
+def test_parse_config_axes2():
+    """Tests parsing CONFIG Axis with missing axes"""
+
+    test_message = "CRISTART 1234 CONFIG Axes A1 1 2 3 4 A2 1 2 3 4 A3 1 2 3 4 E1 1 2 3 4 E2 1 2 3 4 T1 1 2 3 4 P1 1 2 3 4 P2 1 2 3 4"
+
+    robot_state_correct = RobotState()
+    robot_state_correct.robot_axes_count = 3
+    robot_state_correct.external_axes_count = 2
+    robot_state_correct.tool_axes_count = 1
+    robot_state_correct.platform_axes_count = 2
+
+    controller = CRIController()
+    controller._parse_message(test_message)
+
+    assert (
+        controller.robot_state.robot_axes_count == robot_state_correct.robot_axes_count
+    )
+    assert (
+        controller.robot_state.external_axes_count
+        == robot_state_correct.external_axes_count
+    )
+    assert controller.robot_state.tool_axes_count == robot_state_correct.tool_axes_count
+    assert (
+        controller.robot_state.platform_axes_count
+        == robot_state_correct.platform_axes_count
+    )
+
+    # ignore the category time
+    robot_state_correct.category_time_ns = controller.robot_state.category_time_ns
     assert robot_state_equal(controller.robot_state, robot_state_correct)
 
 
