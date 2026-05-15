@@ -33,6 +33,15 @@ class MotionType(Enum):
     Platform = "Platform"
 
 
+async def wait_event_with_timeout(event: asyncio.Event, timeout: float):
+    t_start = time()
+    while not event.is_set():
+        await asyncio.sleep(0.001)
+        if time() - t_start > timeout:
+            raise TimeoutError
+    return
+
+
 class CRIClient:
     """Client with implementations for read-only communication."""
 
@@ -69,7 +78,7 @@ class CRIClient:
         self.sent_command_counter_lock = threading.Lock()
         self.sent_command_counter = 0
         self.answer_events_lock = threading.Lock()
-        self.answer_events: dict[str, threading.Event] = {}
+        self.answer_events: dict[str, asyncio.Event] = {}
         self.error_messages: dict[str, str] = {}
 
         self.status_callback: Callable | None = None
@@ -160,7 +169,7 @@ class CRIClient:
 
     def _register_answer(self, answer_id: str) -> None:
         with self.answer_events_lock:
-            self.answer_events[answer_id] = threading.Event()
+            self.answer_events[answer_id] = asyncio.Event()
 
     def _send_command(
         self,
@@ -206,9 +215,9 @@ class CRIClient:
         if register_answer:
             with self.answer_events_lock:
                 if fixed_answer_name is not None:
-                    self.answer_events[fixed_answer_name] = threading.Event()
+                    self.answer_events[fixed_answer_name] = asyncio.Event()
                 else:
-                    self.answer_events[str(command_counter)] = threading.Event()
+                    self.answer_events[str(command_counter)] = asyncio.Event()
 
         try:
             with self.socket_write_lock:
@@ -288,6 +297,14 @@ class CRIClient:
         message_id: str | int,
         timeout: float | None = DEFAULT,  # type: ignore
     ) -> None | str:
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(self._wait_for_answer_async(message_id, timeout))
+
+    async def _wait_for_answer_async(
+        self,
+        message_id: str | int,
+        timeout: float | None = DEFAULT,  # type: ignore
+    ) -> None | str:
         """Waits for an answer to a message.
         The answer event will be removed after the call, even if there was a timeout. Choose timeout accordingly.
 
@@ -319,9 +336,9 @@ class CRIClient:
                 return None
             wait_event = self.answer_events[message_id]
 
-        if timeout is DEFAULT:
+        if timeout is DEFAULT or timeout is None:
             timeout = self.DEFAULT_ANSWER_TIMEOUT
-        success = wait_event.wait(timeout=timeout)
+        success = await wait_event_with_timeout(wait_event, timeout=timeout)
 
         if not success:
             raise CRICommandTimeOutError()
