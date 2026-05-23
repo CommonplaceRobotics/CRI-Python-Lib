@@ -316,7 +316,7 @@ class CRIClient:
         timeout : float | DEFAULT | None
             timeout for wait in seconds.
             - `DEFAULT` uses `self.DEFAULT_ANSWER_TIMEOUT`
-            - `None` will wait indefinetly
+            - `None` will wait 24 hours.
 
         Returns
         -------
@@ -336,12 +336,16 @@ class CRIClient:
                 return None
             wait_event = self.answer_events[message_id]
 
-        if timeout is DEFAULT or timeout is None:
+        if timeout is DEFAULT:
             timeout = self.DEFAULT_ANSWER_TIMEOUT
-        success = await wait_event_with_timeout(wait_event, timeout=timeout)
-
-        if not success:
-            raise CRICommandTimeOutError()
+        if timeout is None:
+            timeout = 24 * 3600
+        try:
+            await wait_event_with_timeout(wait_event, timeout=timeout)
+        except TimeoutError as ex:
+            raise CRICommandTimeOutError(
+                f"Did not receive {message_id=} answer within {timeout=} s."
+            ) from ex
 
         # prevent deadlock through answer_events_lock
         with self.answer_events_lock:
@@ -779,7 +783,7 @@ class CRIController(CRIClient):
             false: only wait for command ack and not until move is finished
 
         move_finished_timeout : float
-            timout in seconds for waiting for the move to finish, `None` will wait indefinetly
+            timout in seconds for waiting for the move to finish, `None` will wait 24 hours.
 
         acceleration : float | None
             optional acceleration of move in percent of maximum acceleration of robot. Controller defaults to 40%
@@ -847,7 +851,7 @@ class CRIController(CRIClient):
             false: only wait for command ack and not until move is finished
 
         move_finished_timeout : float
-            timout in seconds for waiting for the move to finish, `None` will wait indefinetly
+            timout in seconds for waiting for the move to finish, `None` will wait 24 hours.
 
         acceleration : float | None
             optional acceleration of move in percent of maximum acceleration of robot. Controller defaults to 40%
@@ -919,7 +923,7 @@ class CRIController(CRIClient):
             false: only wait for command ack and not until move is finished
 
         move_finished_timeout : float
-            timout in seconds for waiting for the move to finish, `None` will wait indefinetly
+            timout in seconds for waiting for the move to finish, `None` will wait 24 hours.
 
         acceleration : float | None
             optional acceleration of move in percent of maximum acceleration of robot. Controller defaults to 40%
@@ -992,7 +996,7 @@ class CRIController(CRIClient):
             false: only wait for command ack and not until move is finished
 
         move_finished_timeout : float
-            timout in seconds for waiting for the move to finish, `None` will wait indefinetly
+            timout in seconds for waiting for the move to finish, `None` will wait 24 hours.
 
         acceleration : float | None
             optional acceleration of move in percent of maximum acceleration of robot. Controller defaults to 40%
@@ -1063,7 +1067,7 @@ class CRIController(CRIClient):
             false: only wait for command ack and not until move is finished
 
         move_finished_timeout : float
-            timout in seconds for waiting for the move to finish, `None` will wait indefinetly
+            timout in seconds for waiting for the move to finish, `None` will wait 24 hours.
 
         acceleration : float | None
             optional acceleration of move in percent of maximum acceleration of robot. Controller defaults to 40%
