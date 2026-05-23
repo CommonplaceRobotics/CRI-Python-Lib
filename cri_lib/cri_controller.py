@@ -1879,17 +1879,17 @@ class CRIConnector:
                 await asyncio.sleep(0.05)
 
             # Take active control
-            if not controller.set_active_control(True):
+            if not await controller.set_active_control_async(True):
                 raise CRICommandError("Failed to acquire active control.")
-            if not controller.enable():
+            if not await controller.enable_async():
                 raise CRICommandError("Failed to enable robot.")
-            if not controller.wait_for_kinematics_ready(10):
+            if not await controller.wait_for_kinematics_ready_async(10):
                 raise CRICommandError("Kinematics not ready.")
             yield controller
             # Graceful context exit: give up control (maybe disable robot) then disconnect in finally block.
             if auto_disable:
-                controller.disable()
-            controller.set_active_control(False)
+                await controller.disable_async()
+            await controller.set_active_control_async(False)
         finally:
             controller.close()
         return
