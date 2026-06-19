@@ -36,7 +36,7 @@ jobs:
     # Liest die Core-Version aus CMakeLists.txt
     - name: Get software version
       run: |
-        VER=`grep -E -o "\"version\"[[:blank:]]+=[[:blank:]]+[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+" pyproject.toml | sed "s/[^0-9.]*//g"`
+        VER=`grep -E -o "version[[:blank:]]+=[[:blank:]]\"+[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+" pyproject.toml | sed "s/[^0-9.]*//g"`
         echo "Software version '$VER' detected"
         echo "SW_VERSION=$VER" >> $GITHUB_ENV
 
