@@ -2,6 +2,7 @@
 name = "cri_lib"
 dynamic = ["version"]
 description = "Client library for accessing igus Robot Control via CRI network interface."
+version = "0.4.0"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

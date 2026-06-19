@@ -1,0 +1,15 @@
+{
+  "lifecycle_phase": "build",
+  "supplier": {
+    "name": "Commonplace Robotics GmbH",
+    "url": ["https://commonplacerobotics.de"],
+    "contacts": [{"name": "Support", "email": "support@commonplacerobotics.de"}]
+  },
+  "authors": [
+	"name": "Commonplace Robotics GmbH", "support@commonplacerobotics.de"],
+  "licenses": ["UNLICENSED"],
+  "security_contact": "mailto:support@commonplacerobotics.de",
+  "release_date": "2000-01-01",
+  "support_period_end": "2000-01-01",
+  "end_of_life": "2000-01-01"
+}
