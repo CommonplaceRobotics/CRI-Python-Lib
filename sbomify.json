@@ -6,8 +6,9 @@
     "contacts": [{"name": "Support", "email": "support@commonplacerobotics.de"}]
   },
   "authors": [
-	"name": "Commonplace Robotics GmbH", "support@commonplacerobotics.de"],
-  "licenses": ["UNLICENSED"],
+	{"name": "Commonplace Robotics GmbH", "email": "support@commonplacerobotics.de"}
+  ],
+  "licenses": ["MIT"],
   "security_contact": "mailto:support@commonplacerobotics.de",
   "release_date": "2000-01-01",
   "support_period_end": "2000-01-01",

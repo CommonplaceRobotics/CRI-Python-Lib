@@ -1,4 +1,7 @@
 # Introduction
+[![tests](https://github.com/CommonplaceRobotics/CRI-Python-Lib/actions/workflows/tests.yml/badge.svg)](https://github.com/CommonplaceRobotics/CRI-Python-Lib/actions/workflows/tests.yml)
+[![Generate SBOM](https://github.com/CommonplaceRobotics/CRI-Python-Lib/actions/workflows/sbom.yml/badge.svg)](https://github.com/CommonplaceRobotics/CRI-Python-Lib/actions/workflows/sbom.yml)
+
 Python package to interface an igus Robot Control via the CRI protocol.
 
 # Current Features
