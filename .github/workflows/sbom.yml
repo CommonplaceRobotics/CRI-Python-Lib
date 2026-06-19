@@ -2,7 +2,7 @@ name: Generate SBOM
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "ci" ]
   pull_request:
     branches: [ "master" ]
 
@@ -16,30 +16,69 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
-    - name: Set up Python 3.x
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.x"
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install cyclonedx-bom
-    - name: Create output directory
-      run: |
-        mkdir ~/output
+    #- name: Set up Python 3.x
+    #  uses: actions/setup-python@v6
+    #  with:
+    #    python-version: "3.x"
+    #- name: Install dependencies
+    #  run: |
+    #    python -m pip install --upgrade pip
+    #    pip install cyclonedx-bom
+    #- name: Create output directory
+    #  run: |
+    #    mkdir ~/output
 
-    - name: Generate SBOM
-      working-directory: ./
-      run: |
-        python -m cyclonedx_py requirements > ~/output/sbom.json
+    #- name: Generate SBOM
+    #  working-directory: ./
+    #  run: |
+    #    python -m cyclonedx_py requirements > ~/output/sbom.json
 
-    - uses: actions/upload-artifact@v7
+    # Liest die Core-Version aus CMakeLists.txt
+    - name: Get software version
+      run: |
+        VER=`grep -E -o "\"version\"[[:blank:]]+=[[:blank:]]+[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+" pyproject.toml | sed "s/[^0-9.]*//g"`
+        echo "Software version '$VER' detected"
+        echo "SW_VERSION=$VER" >> $GITHUB_ENV
+
+    - name: Create SBOM
+      uses: sbomify/sbomify-action@master
+      env:
+        LOCK_FILE: requirements.txt
+        OUTPUT_FILE: sbom_windows.cdx.json
+        COMPONENT_NAME: CRI-Python-Lib
+        COMPONENT_VERSION: ${{ env.SW_VERSION }}
+        # Produkt- und Firmeninfo werden aus sbomify.json geladen
+        AUGMENT: true
+        # Metadaten aus Paket-Registry hinzufügen
+        ENRICH: true
+        UPLOAD: false
+
+    - name: Export SBOM
+      uses: actions/upload-artifact@v7
       with:
-        name: SBOM
-        path: ~/output/sbom.json
+        path: sbom_windows.cdx.json
         archive: false
 
+    - uses: actions/setup-go@v6
+
+    - name: Install SBOM QA tool
+      run: go install github.com/interlynk-io/sbomqs@latest
+
+    - name: SBOM quality score
+      run: sbomqs score sbom_windows.cdx.json
+
+    # Checks compliance with the latest version of BSI TR-03183-2
+    - name: Check CRA compliance
+      run: sbomqs compliance --bsi --color sbom_windows.cdx.json
+
+    - name: List component licenses
+      run: sbomqs list --feature comp_with_declared_license --show sbom_windows.cdx.json
+
+    # TODO: Nicht CRA-konforme Felder füllen
+
+    # Security Audit
     - name: Scan for vulnerabilities
       uses: anchore/scan-action@v7
       with:
-        sbom: ~/output/sbom.json
+        sbom: sbom_windows.cdx.json
+        cache-db: true
