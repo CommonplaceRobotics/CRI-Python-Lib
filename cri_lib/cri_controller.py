@@ -482,7 +482,7 @@ class CRIClient:
         else:
             return True
 
-    async def list_files_async(self, target_directory: str = "Programs") -> bool:
+    async def list_files_async(self, target_directory: str = "Programs") -> list[str]:
         """Request a list of all files in the directory, which is relative to the /Data/ directory.
 
         Parameters
@@ -492,28 +492,20 @@ class CRIClient:
 
         Returns
         -------
-        a list of files
+        a list of file paths relative to `/Data`
         """
 
         command = f"CMD ListFiles {target_directory}"
-
+        self._send_command(
+            command=command, register_answer=True, fixed_answer_name="info_filelist"
+        )
         if (
-            self._send_command(
-                command=command, register_answer=True, fixed_answer_name="info_filelist"
-            )
-            is not None
-        ):
-            if (
-                error_msg := await self._wait_for_answer_async(
-                    "info_filelist", timeout=self.DEFAULT_ANSWER_TIMEOUT
-                )
-            ) is not None:
-                logger.debug("Error in ListFiles command: %s", error_msg)
-                return False
-            else:
-                return True
-        else:
-            return False
+            error_msg := await self._wait_for_answer_async("info_filelist")
+        ) is not None:
+            raise CRICommandError(f"Error in ListFiles command: {error_msg}")
+        # the obtained file list is cached in the parser
+        with self.parser.file_list_lock:
+            return list(self.parser.file_list)
 
     def wait_for_status_update(self, timeout: float | None = None) -> None:
         """Blocking wrapper around :func:`CRIClient.wait_for_status_update_async`."""
@@ -545,7 +537,7 @@ class CRIClient:
             self.get_motor_temperatures_async(timeout=timeout)
         )
 
-    def list_files(self) -> bool:
+    def list_files(self) -> list[str]:
         """Blocking wrapper around :func:`CRIClient.list_files_async`."""
         return asyncio.get_event_loop().run_until_complete(self.list_files_async())
 
