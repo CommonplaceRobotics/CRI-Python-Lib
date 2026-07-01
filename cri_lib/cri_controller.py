@@ -441,13 +441,17 @@ class CRIClient:
     async def get_board_temperatures_async(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Receive motor controller PCB temperatures and save in robot state
 
         Parameters
         ----------
         timeout: float | None
             timeout for waiting in seconds or None for infinite waiting
+
+        Returns
+        -------
+        list of motor controller PCB temperatures
         """
         self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
         if (
@@ -455,21 +459,23 @@ class CRIClient:
                 "info_boardtemp", timeout=timeout
             )
         ) is not None:
-            logger.debug("Error in GetBoardTemp command: %s", error_msg)
-            return False
-        else:
-            return True
+            raise CRICommandError(f"Error in GetBoardTemp command: {error_msg}")
+        return list(self.robot_state.board_temps)
 
     async def get_motor_temperatures_async(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Receive motor temperatures and save in robot state
 
         Parameters
         ----------
         timeout: float | None
             timeout for waiting in seconds or None for infinite waiting
+
+        Returns
+        -------
+        list of motor temperatures
         """
         self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
         if (
@@ -477,10 +483,8 @@ class CRIClient:
                 "info_motortemp", timeout=timeout
             )
         ) is not None:
-            logger.debug("Error in GetMotorTemp command: %s", error_msg)
-            return False
-        else:
-            return True
+            raise CRICommandError(f"Error in GetMotorTemp command: {error_msg}")
+        return list(self.robot_state.motor_temps)
 
     async def list_files_async(self, target_directory: str = "Programs") -> list[str]:
         """Request a list of all files in the directory, which is relative to the /Data/ directory.
@@ -522,7 +526,7 @@ class CRIClient:
     def get_board_temperatures(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_board_temperatures_async`."""
         return asyncio.get_event_loop().run_until_complete(
             self.get_board_temperatures_async(timeout=timeout)
@@ -531,7 +535,7 @@ class CRIClient:
     def get_motor_temperatures(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_motor_temperatures_async`."""
         return asyncio.get_event_loop().run_until_complete(
             self.get_motor_temperatures_async(timeout=timeout)
