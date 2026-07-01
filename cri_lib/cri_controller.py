@@ -13,7 +13,7 @@ from typing import Any, Callable, Literal
 
 from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
-from .robot_state import KinematicsState, RobotState
+from .robot_state import KinematicsState, ReplayMode, RobotState
 
 logger = logging.getLogger(__name__)
 
@@ -1354,6 +1354,27 @@ class CRIController(CRIClient):
             return False
         else:
             return True
+
+    async def set_replay_mode_async(self, replay_mode: ReplayMode) -> None:
+        """Set the main program replay mode.
+
+        Parameters
+        ----------
+        replay_mode
+            Which mode to apply if the ``robot_state`` is not already in it.
+
+        Raises
+        ------
+        CRICommandError
+            If the ``replay_mode`` could not be applied.
+        """
+        while self.robot_state.main_replay_mode != replay_mode:
+            msg_id = self.send_command(
+                f"CMD ProgramReplayMode {replay_mode.value}", True
+            )
+            if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
+                raise CRICommandError(f"Could not set replay mode: {error_msg}")
+            await asyncio.sleep(0.1)
 
     async def start_programm_async(self) -> bool:
         """Start currently loaded Program
