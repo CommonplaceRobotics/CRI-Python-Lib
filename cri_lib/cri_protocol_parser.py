@@ -95,8 +95,14 @@ class CRIProtocolParser:
                 if (answer := self._parse_info(parts[3:-1])) is not None:
                     result = {"answer": answer}
 
-            case "EXECEND":
-                result = {"answer": "EXECEND"}
+            case "LOGMSG":
+                # every received message is logged, so there's no need to log it again
+                pass
+
+            case "EXECACK" | "EXECPAUSE" | "EXECEND":
+                # the messages doesn't contain a command message ID,
+                # therefore only the category can be subscribed to.
+                result = {"answer": str(cmd_category)}
 
             case "EXECERROR":
                 result = self._parse_execerror(parts[3:-1])
