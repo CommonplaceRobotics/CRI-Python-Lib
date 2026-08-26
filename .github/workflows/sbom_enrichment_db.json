@@ -1,0 +1,18 @@
+{
+    "components":
+    [
+		{
+			"purl": "pkg:generic/cri-python-lib@",
+			"filename": "package/cri_lib.zip",
+            "original_licenses": ["non-standard"],
+            "distribution_licenses": ["non-standard"],
+			"effective_license": "non-standard",
+            "executable": true
+		}
+    ],
+	"remove-components":
+	[
+		"pkg:pypi/pytest-cov",
+		"pkg:pypi/pytest@"
+	]
+}
