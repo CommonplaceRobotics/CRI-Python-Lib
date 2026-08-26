@@ -13,7 +13,7 @@ from typing import Any, Callable, Literal
 
 from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
-from .robot_state import KinematicsState, RobotState
+from .robot_state import KinematicsState, ReplayMode, RobotState
 
 logger = logging.getLogger(__name__)
 
@@ -441,13 +441,17 @@ class CRIClient:
     async def get_board_temperatures_async(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Receive motor controller PCB temperatures and save in robot state
 
         Parameters
         ----------
         timeout: float | None
             timeout for waiting in seconds or None for infinite waiting
+
+        Returns
+        -------
+        list of motor controller PCB temperatures
         """
         self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
         if (
@@ -455,21 +459,23 @@ class CRIClient:
                 "info_boardtemp", timeout=timeout
             )
         ) is not None:
-            logger.debug("Error in GetBoardTemp command: %s", error_msg)
-            return False
-        else:
-            return True
+            raise CRICommandError(f"Error in GetBoardTemp command: {error_msg}")
+        return list(self.robot_state.board_temps)
 
     async def get_motor_temperatures_async(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Receive motor temperatures and save in robot state
 
         Parameters
         ----------
         timeout: float | None
             timeout for waiting in seconds or None for infinite waiting
+
+        Returns
+        -------
+        list of motor temperatures
         """
         self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
         if (
@@ -477,12 +483,10 @@ class CRIClient:
                 "info_motortemp", timeout=timeout
             )
         ) is not None:
-            logger.debug("Error in GetMotorTemp command: %s", error_msg)
-            return False
-        else:
-            return True
+            raise CRICommandError(f"Error in GetMotorTemp command: {error_msg}")
+        return list(self.robot_state.motor_temps)
 
-    async def list_files_async(self, target_directory: str = "Programs") -> bool:
+    async def list_files_async(self, target_directory: str = "Programs") -> list[str]:
         """Request a list of all files in the directory, which is relative to the /Data/ directory.
 
         Parameters
@@ -492,28 +496,20 @@ class CRIClient:
 
         Returns
         -------
-        a list of files
+        a list of file paths relative to `/Data`
         """
 
         command = f"CMD ListFiles {target_directory}"
-
+        self._send_command(
+            command=command, register_answer=True, fixed_answer_name="info_filelist"
+        )
         if (
-            self._send_command(
-                command=command, register_answer=True, fixed_answer_name="info_filelist"
-            )
-            is not None
-        ):
-            if (
-                error_msg := await self._wait_for_answer_async(
-                    "info_filelist", timeout=self.DEFAULT_ANSWER_TIMEOUT
-                )
-            ) is not None:
-                logger.debug("Error in ListFiles command: %s", error_msg)
-                return False
-            else:
-                return True
-        else:
-            return False
+            error_msg := await self._wait_for_answer_async("info_filelist")
+        ) is not None:
+            raise CRICommandError(f"Error in ListFiles command: {error_msg}")
+        # the obtained file list is cached in the parser
+        with self.parser.file_list_lock:
+            return list(self.parser.file_list)
 
     def wait_for_status_update(self, timeout: float | None = None) -> None:
         """Blocking wrapper around :func:`CRIClient.wait_for_status_update_async`."""
@@ -530,7 +526,7 @@ class CRIClient:
     def get_board_temperatures(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_board_temperatures_async`."""
         return asyncio.get_event_loop().run_until_complete(
             self.get_board_temperatures_async(timeout=timeout)
@@ -539,13 +535,13 @@ class CRIClient:
     def get_motor_temperatures(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
-    ) -> bool:
+    ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_motor_temperatures_async`."""
         return asyncio.get_event_loop().run_until_complete(
             self.get_motor_temperatures_async(timeout=timeout)
         )
 
-    def list_files(self) -> bool:
+    def list_files(self) -> list[str]:
         """Blocking wrapper around :func:`CRIClient.list_files_async`."""
         return asyncio.get_event_loop().run_until_complete(self.list_files_async())
 
@@ -1355,15 +1351,52 @@ class CRIController(CRIClient):
         else:
             return True
 
-    async def start_programm_async(self) -> bool:
-        """Start currently loaded Program
+    async def set_replay_mode_async(self, replay_mode: ReplayMode) -> None:
+        """Set the main program replay mode.
+
+        Parameters
+        ----------
+        replay_mode
+            Which mode to apply if the ``robot_state`` is not already in it.
+
+        Raises
+        ------
+        CRICommandError
+            If the ``replay_mode`` could not be applied.
+        """
+        while self.robot_state.main_replay_mode != replay_mode:
+            msg_id = self.send_command(
+                f"CMD ProgramReplayMode {replay_mode.value}", True
+            )
+            if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
+                raise CRICommandError(f"Could not set replay mode: {error_msg}")
+            await asyncio.sleep(0.05)
+
+    async def start_programm_async(
+        self, *, replay_mode: ReplayMode | None = None
+    ) -> bool:
+        """Start currently loaded Program.
+
+        Parameters
+        ----------
+        replay_mode
+            Which replay mode to apply before starting.
+            If not provided, the currently set mode is kept.
 
         Returns
         -------
         bool
             `True` if request was successful
             `False` if request was not successful
+
+        Raises
+        ------
+        CRICommandError
+            If the ``replay_mode`` could not be applied.
         """
+        if replay_mode is not None:
+            await self.set_replay_mode_async(replay_mode)
+
         command = "CMD StartProgram"
 
         msg_id = self._send_command(command, True)
@@ -1785,9 +1818,11 @@ class CRIController(CRIClient):
             self.load_logic_programm_async(program_name)
         )
 
-    def start_programm(self) -> bool:
+    def start_programm(self, *, replay_mode: ReplayMode | None = None) -> bool:
         """Blocking wrapper around :func:`CRIController.start_programm_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.start_programm_async())
+        return asyncio.get_event_loop().run_until_complete(
+            self.start_programm_async(replay_mode=replay_mode)
+        )
 
     def stop_programm(self) -> bool:
         """Blocking wrapper around :func:`CRIController.stop_programm_async`."""
