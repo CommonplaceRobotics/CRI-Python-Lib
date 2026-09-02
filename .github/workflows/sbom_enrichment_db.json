@@ -3,11 +3,15 @@
     [
 		{
 			"purl": "pkg:generic/cri-python-lib@",
+			"type": "library",
+			"creator": "support@cpr-robots.com",
 			"filename": "package/cri_lib.zip",
             "original_licenses": ["non-standard"],
             "distribution_licenses": ["non-standard"],
 			"effective_license": "non-standard",
-            "executable": true
+            "executable": true,
+			"archive": true,
+			"structured": true
 		}
     ],
 	"remove-components":
