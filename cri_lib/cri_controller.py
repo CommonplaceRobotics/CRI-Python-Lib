@@ -1306,7 +1306,13 @@ class CRIController(CRIClient):
             return True
 
     async def load_programm_async(self, program_name: str) -> bool:
-        """Load a program file from disk into the robot controller
+        """Load a program file from disk into the robot controller.
+
+        This starts the program loading process on the core, therefore the
+        return code only implies that the request was received and parsed
+        correctly. Most programs should be loaded within about 1s, after which
+        robot_state.main_main_program will change to the name of the loaded
+        program. If loading fails the program will be unloaded.
 
         Parameters
         ----------
@@ -1329,7 +1335,13 @@ class CRIController(CRIClient):
             return True
 
     async def load_logic_programm_async(self, program_name: str) -> bool:
-        """Load a logic program file from disk into the robot controller
+        """Load a logic program file from disk into the robot controller.
+
+        This starts the program loading process on the core, therefore the
+        return code only implies that the request was received and parsed
+        correctly. Most programs should be loaded within about 1s, after which
+        robot_state.logic_main_program will change to the name of the loaded
+        program. If loading fails the program will be unloaded.
 
         Parameters
         ----------
