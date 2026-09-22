@@ -4,6 +4,8 @@
 
 Python package to interface an igus Robot Control via the CRI protocol.
 
+For new developments please consider using the [App Interface](https://github.com/CommonplaceRobotics/RobotControlApps), which provides better integration into the robot control and a more stable API but less configuration commands.
+
 # Current Features
 - Robot State
 - Basic functions
