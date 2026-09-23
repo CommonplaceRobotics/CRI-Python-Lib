@@ -29,11 +29,11 @@ async def main():
 
     # connect and take control
     async with connector.control(auto_disable=False) as controller:
-        controller.set_override(100.0)
+        await controller.set_override_async(100.0)
 
         # Perform relative movement
         logger.info("Moving base relative: +20mm in X, Y, Z...")
-        controller.move_base_relative(
+        await controller.move_base_relative_async(
             20.0,
             20.0,
             20.0,
@@ -49,7 +49,7 @@ async def main():
         )
 
         logger.info("Moving back: -20mm in X, Y, Z...")
-        controller.move_base_relative(
+        await controller.move_base_relative_async(
             -20.0,
             -20.0,
             -20.0,
