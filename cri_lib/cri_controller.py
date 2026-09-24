@@ -18,6 +18,22 @@ from .robot_state import KinematicsState, ReplayMode, RobotState
 logger = logging.getLogger(__name__)
 
 
+_thread_local = threading.local()
+
+
+def _run_sync(coro):
+    """Runs a coroutine to completion on a per-thread event loop.
+
+    ``asyncio.get_event_loop()`` no longer creates a loop implicitly (Python 3.14+),
+    so the blocking wrappers keep their own loop for the calling thread.
+    """
+    loop = getattr(_thread_local, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _thread_local.loop = loop
+    return loop.run_until_complete(coro)
+
+
 DEFAULT = object()
 """Placeholder for defaulting a parameter to runtime-configurable default values."""
 REQUIRED_STATUS_CATEGORIES = {"STATUS", "RUNSTATE"}
@@ -297,8 +313,7 @@ class CRIClient:
         message_id: str | int,
         timeout: float | None = DEFAULT,  # type: ignore
     ) -> None | str:
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(self._wait_for_answer_async(message_id, timeout))
+        return _run_sync(self._wait_for_answer_async(message_id, timeout))
 
     async def _wait_for_answer_async(
         self,
@@ -513,13 +528,13 @@ class CRIClient:
 
     def wait_for_status_update(self, timeout: float | None = None) -> None:
         """Blocking wrapper around :func:`CRIClient.wait_for_status_update_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.wait_for_status_update_async(timeout)
         )
 
     def wait_for_kinematics_ready(self, timeout: float = 30) -> bool:
         """Blocking wrapper around :func:`CRIClient.wait_for_kinematics_ready_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.wait_for_kinematics_ready_async(timeout)
         )
 
@@ -528,7 +543,7 @@ class CRIClient:
         timeout: float | None = DEFAULT,  # type: ignore
     ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_board_temperatures_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.get_board_temperatures_async(timeout=timeout)
         )
 
@@ -537,13 +552,13 @@ class CRIClient:
         timeout: float | None = DEFAULT,  # type: ignore
     ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_motor_temperatures_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.get_motor_temperatures_async(timeout=timeout)
         )
 
     def list_files(self) -> list[str]:
         """Blocking wrapper around :func:`CRIClient.list_files_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.list_files_async())
+        return _run_sync(self.list_files_async())
 
 
 class CRIController(CRIClient):
@@ -1565,41 +1580,41 @@ class CRIController(CRIClient):
 
     def reset(self) -> bool:
         """Blocking wrapper around :func:`CRIController.reset_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.reset_async())
+        return _run_sync(self.reset_async())
 
     def enable(self) -> bool:
         """Blocking wrapper around :func:`CRIController.enable_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.enable_async())
+        return _run_sync(self.enable_async())
 
     def disable(self) -> bool:
         """Blocking wrapper around :func:`CRIController.disable_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.disable_async())
+        return _run_sync(self.disable_async())
 
     def set_active_control(self, active: bool) -> bool:
         """Blocking wrapper around :func:`CRIController.set_active_control_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.set_active_control_async(active=active)
         )
 
     def zero_all_joints(self) -> bool:
         """Blocking wrapper around :func:`CRIController.zero_all_joints_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.zero_all_joints_async())
+        return _run_sync(self.zero_all_joints_async())
 
     def reference_all_joints(self, *, timeout: float = 30) -> bool:
         """Blocking wrapper around :func:`CRIController.reference_all_joints_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.reference_all_joints_async(timeout=timeout)
         )
 
     def reference_single_joint(self, joint: str, *, timeout: float = 30) -> bool:
         """Blocking wrapper around :func:`CRIController.reference_single_joint_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.reference_single_joint_async(joint=joint, timeout=timeout)
         )
 
     def get_referencing_info(self):
         """Blocking wrapper around :func:`CRIController.get_referencing_info_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.get_referencing_info_async()
         )
 
@@ -1620,7 +1635,7 @@ class CRIController(CRIClient):
         acceleration: float | None = None,
     ) -> bool:
         """Blocking wrapper around :func:`CRIController.move_joints_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.move_joints_async(
                 A1=A1,
                 A2=A2,
@@ -1655,7 +1670,7 @@ class CRIController(CRIClient):
         acceleration: float | None = None,
     ) -> bool:
         """Blocking wrapper around :func:`CRIController.move_joints_relative_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.move_joints_relative_async(
                 A1=A1,
                 A2=A2,
@@ -1691,7 +1706,7 @@ class CRIController(CRIClient):
         acceleration: float | None = None,
     ) -> bool:
         """Blocking wrapper around :func:`CRIController.move_cartesian_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.move_cartesian_async(
                 X=X,
                 Y=Y,
@@ -1728,7 +1743,7 @@ class CRIController(CRIClient):
         acceleration: float | None = None,
     ) -> bool:
         """Blocking wrapper around :func:`CRIController.move_base_relative_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.move_base_relative_async(
                 X=X,
                 Y=Y,
@@ -1765,7 +1780,7 @@ class CRIController(CRIClient):
         acceleration: float | None = None,
     ) -> bool:
         """Blocking wrapper around :func:`CRIController.move_tool_relative_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.move_tool_relative_async(
                 X=X,
                 Y=Y,
@@ -1786,63 +1801,63 @@ class CRIController(CRIClient):
 
     def stop_move(self) -> bool:
         """Blocking wrapper around :func:`CRIController.stop_move_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.stop_move_async())
+        return _run_sync(self.stop_move_async())
 
     def set_motion_type(self, motion_type: MotionType):
         """Blocking wrapper around :func:`CRIController.set_motion_type_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.set_motion_type_async(motion_type)
         )
 
     def set_override(self, override: float):
         """Blocking wrapper around :func:`CRIController.set_override_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.set_override_async(override)
         )
 
     def set_dout(self, id: int, value: bool):
         """Blocking wrapper around :func:`CRIController.set_dout_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.set_dout_async(id=id, value=value)
         )
 
     def set_din(self, id: int, value: bool):
         """Blocking wrapper around :func:`CRIController.set_din_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.set_din_async(id=id, value=value)
         )
 
     def set_global_signal(self, id: int, value: bool):
         """Blocking wrapper around :func:`CRIController.set_global_signal_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.set_global_signal_async(id=id, value=value)
         )
 
     def load_programm(self, program_name: str) -> bool:
         """Blocking wrapper around :func:`CRIController.load_programm_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.load_programm_async(program_name)
         )
 
     def load_logic_programm(self, program_name: str) -> bool:
         """Blocking wrapper around :func:`CRIController.load_logic_programm_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.load_logic_programm_async(program_name)
         )
 
     def start_programm(self, *, replay_mode: ReplayMode | None = None) -> bool:
         """Blocking wrapper around :func:`CRIController.start_programm_async`."""
-        return asyncio.get_event_loop().run_until_complete(
+        return _run_sync(
             self.start_programm_async(replay_mode=replay_mode)
         )
 
     def stop_programm(self) -> bool:
         """Blocking wrapper around :func:`CRIController.stop_programm_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.stop_programm_async())
+        return _run_sync(self.stop_programm_async())
 
     def pause_programm(self) -> bool:
         """Blocking wrapper around :func:`CRIController.pause_programm_async`."""
-        return asyncio.get_event_loop().run_until_complete(self.pause_programm_async())
+        return _run_sync(self.pause_programm_async())
 
 
 # Monkey patch to maintain backward compatibility
