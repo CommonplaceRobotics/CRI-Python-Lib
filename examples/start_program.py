@@ -5,15 +5,22 @@ from cri_lib import CRIController
 
 # 🔹 Configure logging
 logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+    # Set to DEBUG to log all received CRI messages
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 # CRIController is the main interface for controlling the iRC
 controller = CRIController()
 
 # connect to default iRC IP
-# if not controller.connect("127.0.0.1", 3921):
-if not controller.connect("192.168.3.11"):
+# Simulator
+ip = "127.0.0.1"
+port = 3922
+# Real robot
+# ip = "192.168.3.11"
+# port = 3921
+if not controller.connect(ip, port):
     logger.error("Unable to connect")
     quit()
 

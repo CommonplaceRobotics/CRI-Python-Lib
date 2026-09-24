@@ -99,12 +99,19 @@ class CRIProtocolParser:
                 # every received message is logged, so there's no need to log it again
                 pass
 
-            case "EXECACK" | "EXECPAUSE" | "EXECEND":
+            case (
+                "EXECACK"
+                | "EXECPAUSE"
+                | "EXECEND"
+                | "MOVETOEXECACK"
+                | "MOVETOEXECPAUSE"
+                | "MOVETOEXECEND"
+            ):
                 # the messages doesn't contain a command message ID,
                 # therefore only the category can be subscribed to.
                 result = {"answer": str(cmd_category)}
 
-            case "EXECERROR":
+            case "EXECERROR" | "MOVETOEXECERROR":
                 result = self._parse_execerror(parts[3:-1])
 
             case _:

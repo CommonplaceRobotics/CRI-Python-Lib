@@ -10,17 +10,25 @@ import logging
 from cri_lib import CRIConnector
 
 logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+    # Set to DEBUG to log all received CRI messages
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
 async def main():
     # The connector creates passive or active control sessions with proper resource management.
+    # Simulator
     connector = CRIConnector(
         host="127.0.0.1",
-        port=3921,
+        port=3922,
     )
+    # Real robot
+    # connector = CRIConnector(
+    #     host="192.168.3.11",
+    #     port=3921,
+    # )
 
     # connect asynchronously
     async with connector.observe() as client:

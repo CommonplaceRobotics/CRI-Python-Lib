@@ -528,33 +528,25 @@ class CRIClient:
 
     def wait_for_status_update(self, timeout: float | None = None) -> None:
         """Blocking wrapper around :func:`CRIClient.wait_for_status_update_async`."""
-        return _run_sync(
-            self.wait_for_status_update_async(timeout)
-        )
+        return _run_sync(self.wait_for_status_update_async(timeout))
 
     def wait_for_kinematics_ready(self, timeout: float = 30) -> bool:
         """Blocking wrapper around :func:`CRIClient.wait_for_kinematics_ready_async`."""
-        return _run_sync(
-            self.wait_for_kinematics_ready_async(timeout)
-        )
+        return _run_sync(self.wait_for_kinematics_ready_async(timeout))
 
     def get_board_temperatures(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
     ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_board_temperatures_async`."""
-        return _run_sync(
-            self.get_board_temperatures_async(timeout=timeout)
-        )
+        return _run_sync(self.get_board_temperatures_async(timeout=timeout))
 
     def get_motor_temperatures(
         self,
         timeout: float | None = DEFAULT,  # type: ignore
     ) -> list[float]:
         """Blocking wrapper around :func:`CRIClient.get_motor_temperatures_async`."""
-        return _run_sync(
-            self.get_motor_temperatures_async(timeout=timeout)
-        )
+        return _run_sync(self.get_motor_temperatures_async(timeout=timeout))
 
     def list_files(self) -> list[str]:
         """Blocking wrapper around :func:`CRIClient.list_files_async`."""
@@ -811,8 +803,14 @@ class CRIController(CRIClient):
         ):
             command = f"{command} {acceleration}"
 
+        core_ver = self.robot_state.robot_control_version
+        if core_ver.startswith("V980-14") or core_ver.startswith("V980-13"):
+            expected_response = "EXECEND"
+        else:
+            expected_response = "MOVETOEXECEND"
+
         if wait_move_finished:
-            self._register_answer("EXECEND")
+            self._register_answer(expected_response)
 
         msg_id = self._send_command(command, True)
         if (
@@ -824,7 +822,7 @@ class CRIController(CRIClient):
         if wait_move_finished:
             if (
                 error_msg := await self._wait_for_answer_async(
-                    "EXECEND", timeout=move_finished_timeout
+                    expected_response, timeout=move_finished_timeout
                 )
             ) is not None:
                 logger.debug("Exec Error in Move Joints command: %s", error_msg)
@@ -877,8 +875,14 @@ class CRIController(CRIClient):
         ):
             command = f"{command} {acceleration}"
 
+        core_ver = self.robot_state.robot_control_version
+        if core_ver.startswith("V980-14") or core_ver.startswith("V980-13"):
+            expected_response = "EXECEND"
+        else:
+            expected_response = "MOVETOEXECEND"
+
         if wait_move_finished:
-            self._register_answer("EXECEND")
+            self._register_answer(expected_response)
 
         msg_id = self._send_command(command, True)
         if (
@@ -890,7 +894,7 @@ class CRIController(CRIClient):
         if wait_move_finished:
             if (
                 error_msg := await self._wait_for_answer_async(
-                    "EXECEND", timeout=move_finished_timeout
+                    expected_response, timeout=move_finished_timeout
                 )
             ) is not None:
                 logger.debug(
@@ -951,8 +955,14 @@ class CRIController(CRIClient):
         ):
             command = f"{command} {acceleration}"
 
+        core_ver = self.robot_state.robot_control_version
+        if core_ver.startswith("V980-14") or core_ver.startswith("V980-13"):
+            expected_response = "EXECEND"
+        else:
+            expected_response = "MOVETOEXECEND"
+
         if wait_move_finished:
-            self._register_answer("EXECEND")
+            self._register_answer(expected_response)
 
         msg_id = self._send_command(command, True)
         if (
@@ -964,7 +974,7 @@ class CRIController(CRIClient):
         if wait_move_finished:
             if (
                 error_msg := await self._wait_for_answer_async(
-                    "EXECEND", timeout=move_finished_timeout
+                    expected_response, timeout=move_finished_timeout
                 )
             ) is not None:
                 logger.debug("Exec Error in Move Cartesian command: %s", error_msg)
@@ -1022,8 +1032,14 @@ class CRIController(CRIClient):
         ):
             command = f"{command} {acceleration}"
 
+        core_ver = self.robot_state.robot_control_version
+        if core_ver.startswith("V980-14") or core_ver.startswith("V980-13"):
+            expected_response = "EXECEND"
+        else:
+            expected_response = "MOVETOEXECEND"
+
         if wait_move_finished:
-            self._register_answer("EXECEND")
+            self._register_answer(expected_response)
 
         msg_id = self._send_command(command, True)
         if (
@@ -1035,7 +1051,7 @@ class CRIController(CRIClient):
         if wait_move_finished:
             if (
                 error_msg := await self._wait_for_answer_async(
-                    "EXECEND", timeout=move_finished_timeout
+                    expected_response, timeout=move_finished_timeout
                 )
             ) is not None:
                 logger.debug("Exec Error in Move BaseRelative command: %s", error_msg)
@@ -1093,8 +1109,14 @@ class CRIController(CRIClient):
         ):
             command = f"{command} {acceleration}"
 
+        core_ver = self.robot_state.robot_control_version
+        if core_ver.startswith("V980-14") or core_ver.startswith("V980-13"):
+            expected_response = "EXECEND"
+        else:
+            expected_response = "MOVETOEXECEND"
+
         if wait_move_finished:
-            self._register_answer("EXECEND")
+            self._register_answer(expected_response)
 
         msg_id = self._send_command(command, True)
         if (
@@ -1106,7 +1128,7 @@ class CRIController(CRIClient):
         if wait_move_finished:
             if (
                 error_msg := await self._wait_for_answer_async(
-                    "EXECEND", timeout=move_finished_timeout
+                    expected_response, timeout=move_finished_timeout
                 )
             ) is not None:
                 logger.debug("Exec Error in Move BaseTool command: %s", error_msg)
@@ -1592,9 +1614,7 @@ class CRIController(CRIClient):
 
     def set_active_control(self, active: bool) -> bool:
         """Blocking wrapper around :func:`CRIController.set_active_control_async`."""
-        return _run_sync(
-            self.set_active_control_async(active=active)
-        )
+        return _run_sync(self.set_active_control_async(active=active))
 
     def zero_all_joints(self) -> bool:
         """Blocking wrapper around :func:`CRIController.zero_all_joints_async`."""
@@ -1602,9 +1622,7 @@ class CRIController(CRIClient):
 
     def reference_all_joints(self, *, timeout: float = 30) -> bool:
         """Blocking wrapper around :func:`CRIController.reference_all_joints_async`."""
-        return _run_sync(
-            self.reference_all_joints_async(timeout=timeout)
-        )
+        return _run_sync(self.reference_all_joints_async(timeout=timeout))
 
     def reference_single_joint(self, joint: str, *, timeout: float = 30) -> bool:
         """Blocking wrapper around :func:`CRIController.reference_single_joint_async`."""
@@ -1614,9 +1632,7 @@ class CRIController(CRIClient):
 
     def get_referencing_info(self):
         """Blocking wrapper around :func:`CRIController.get_referencing_info_async`."""
-        return _run_sync(
-            self.get_referencing_info_async()
-        )
+        return _run_sync(self.get_referencing_info_async())
 
     def move_joints(
         self,
@@ -1805,51 +1821,35 @@ class CRIController(CRIClient):
 
     def set_motion_type(self, motion_type: MotionType):
         """Blocking wrapper around :func:`CRIController.set_motion_type_async`."""
-        return _run_sync(
-            self.set_motion_type_async(motion_type)
-        )
+        return _run_sync(self.set_motion_type_async(motion_type))
 
     def set_override(self, override: float):
         """Blocking wrapper around :func:`CRIController.set_override_async`."""
-        return _run_sync(
-            self.set_override_async(override)
-        )
+        return _run_sync(self.set_override_async(override))
 
     def set_dout(self, id: int, value: bool):
         """Blocking wrapper around :func:`CRIController.set_dout_async`."""
-        return _run_sync(
-            self.set_dout_async(id=id, value=value)
-        )
+        return _run_sync(self.set_dout_async(id=id, value=value))
 
     def set_din(self, id: int, value: bool):
         """Blocking wrapper around :func:`CRIController.set_din_async`."""
-        return _run_sync(
-            self.set_din_async(id=id, value=value)
-        )
+        return _run_sync(self.set_din_async(id=id, value=value))
 
     def set_global_signal(self, id: int, value: bool):
         """Blocking wrapper around :func:`CRIController.set_global_signal_async`."""
-        return _run_sync(
-            self.set_global_signal_async(id=id, value=value)
-        )
+        return _run_sync(self.set_global_signal_async(id=id, value=value))
 
     def load_programm(self, program_name: str) -> bool:
         """Blocking wrapper around :func:`CRIController.load_programm_async`."""
-        return _run_sync(
-            self.load_programm_async(program_name)
-        )
+        return _run_sync(self.load_programm_async(program_name))
 
     def load_logic_programm(self, program_name: str) -> bool:
         """Blocking wrapper around :func:`CRIController.load_logic_programm_async`."""
-        return _run_sync(
-            self.load_logic_programm_async(program_name)
-        )
+        return _run_sync(self.load_logic_programm_async(program_name))
 
     def start_programm(self, *, replay_mode: ReplayMode | None = None) -> bool:
         """Blocking wrapper around :func:`CRIController.start_programm_async`."""
-        return _run_sync(
-            self.start_programm_async(replay_mode=replay_mode)
-        )
+        return _run_sync(self.start_programm_async(replay_mode=replay_mode))
 
     def stop_programm(self) -> bool:
         """Blocking wrapper around :func:`CRIController.stop_programm_async`."""
