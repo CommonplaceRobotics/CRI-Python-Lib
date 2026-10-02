@@ -341,7 +341,7 @@ class CRIClient:
 
         Raises
         ------
-        CRITimeoutError
+        CRICommandTimeOutError
             raised if no answer was received in given timeout
 
         """
