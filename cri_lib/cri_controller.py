@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
 from time import sleep, time
-from typing import Any, Callable, Literal, ParamSpec, TypeVar, Concatenate, Awaitable
+from typing import Any, Callable, Literal, ParamSpec, TypeVar, Coroutine
 
 from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
@@ -36,16 +36,16 @@ def _run_sync(coro):
 
 P = ParamSpec("P")
 R = TypeVar("R")
-S = TypeVar("S")
 
 def blocking_wrapper(
-    async_fn: Callable[Concatenate[S, P], Awaitable[R]],
-) -> Callable[Concatenate[S, P], R]:
+    async_fn: Callable[P, Coroutine[Any, Any, R]]
+) -> Callable[P, R]:
     """Create a blocking twin of an ``*_async`` method."""
     name = async_fn.__name__
 
     @functools.wraps(async_fn)
-    def wrapper(self: S, *args: P.args, **kwargs: P.kwargs) -> R:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        self, *rest = args
         return _run_sync(getattr(self, name)(*args, **kwargs))
 
     wrapper.__doc__ = f"Blocking wrapper around :meth:`{async_fn.__qualname__}`."
