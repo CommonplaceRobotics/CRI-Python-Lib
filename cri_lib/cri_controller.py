@@ -46,7 +46,7 @@ def blocking_wrapper(
     @functools.wraps(async_fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         self, *rest = args
-        return _run_sync(getattr(self, name)(*args, **kwargs))
+        return _run_sync(getattr(self, name)(*rest, **kwargs))
 
     wrapper.__doc__ = f"Blocking wrapper around :meth:`{async_fn.__qualname__}`."
     return wrapper
