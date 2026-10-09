@@ -290,23 +290,30 @@ class CRIClient:
 
             continue_parsing = True
             while continue_parsing:
-                # check for an end of message
-                end_idx = message_buffer.find(b"CRIEND")
-                if end_idx != -1:
-                    start_idx = message_buffer.find(b"CRISTART")
+                try:
+                    # check for an end of message
+                    end_idx = message_buffer.find(b"CRIEND")
+                    if end_idx != -1:
+                        start_idx = message_buffer.find(b"CRISTART")
 
-                    # check if there is a complete message
-                    if start_idx != -1:
-                        message = message_buffer[start_idx : end_idx + 6].decode()
-                        self._parse_message(message)
+                        # check if there is a complete message
+                        if start_idx != -1:
+                            message = message_buffer[start_idx : end_idx + 6].decode()
+                            self._parse_message(message)
 
-                    # check if there is data left in the buffer
-                    if len(message_buffer) > end_idx + 7:
-                        message_buffer = message_buffer[end_idx + 7 :]
+                        # check if there is data left in the buffer
+                        if len(message_buffer) > end_idx + 7:
+                            message_buffer = message_buffer[end_idx + 7 :]
+                        else:
+                            message_buffer.clear()
                     else:
-                        message_buffer.clear()
-                else:
-                    continue_parsing = False
+                        continue_parsing = False
+                except Exception as ex:
+                    logger.error(
+                        "Receive Thread: Failed to parse message, clearing buffer: "
+                        + str(ex)
+                    )
+                    message_buffer.clear()
 
     def _wait_for_answer(
         self,
