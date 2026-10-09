@@ -3,13 +3,14 @@ import contextlib
 import logging
 import socket
 import threading
+import functools
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
 from time import sleep, time
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, ParamSpec, TypeVar, Coroutine
 
 from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
@@ -33,6 +34,22 @@ def _run_sync(coro):
         _thread_local.loop = loop
     return loop.run_until_complete(coro)
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
+def blocking_wrapper(
+    async_fn: Callable[P, Coroutine[Any, Any, R]]
+) -> Callable[P, R]:
+    """Create a blocking twin of an ``*_async`` method."""
+    name = async_fn.__name__
+
+    @functools.wraps(async_fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        self, *rest = args
+        return _run_sync(getattr(self, name)(*rest, **kwargs))
+
+    wrapper.__doc__ = f"Blocking wrapper around :meth:`{async_fn.__qualname__}`."
+    return wrapper
 
 DEFAULT = object()
 """Placeholder for defaulting a parameter to runtime-configurable default values."""
@@ -1342,7 +1359,7 @@ class CRIController(CRIClient):
         else:
             return True
 
-    async def load_programm_async(self, program_name: str) -> bool:
+    async def load_program_async(self, program_name: str) -> bool:
         """Load a program file from disk into the robot controller.
 
         This starts the program loading process on the core, therefore the
@@ -1371,7 +1388,7 @@ class CRIController(CRIClient):
         else:
             return True
 
-    async def load_logic_programm_async(self, program_name: str) -> bool:
+    async def load_logic_program_async(self, program_name: str) -> bool:
         """Load a logic program file from disk into the robot controller.
 
         This starts the program loading process on the core, therefore the
@@ -1421,7 +1438,7 @@ class CRIController(CRIClient):
                 raise CRICommandError(f"Could not set replay mode: {error_msg}")
             await asyncio.sleep(0.05)
 
-    async def start_programm_async(
+    async def start_program_async(
         self, *, replay_mode: ReplayMode | None = None
     ) -> bool:
         """Start currently loaded Program.
@@ -1455,7 +1472,7 @@ class CRIController(CRIClient):
         else:
             return True
 
-    async def stop_programm_async(self) -> bool:
+    async def stop_program_async(self) -> bool:
         """Stop currently running Program
 
         Returns
@@ -1473,7 +1490,7 @@ class CRIController(CRIClient):
         else:
             return True
 
-    async def pause_programm_async(self) -> bool:
+    async def pause_program_async(self) -> bool:
         """Pause currently running Program
 
         Returns
@@ -1600,264 +1617,32 @@ class CRIController(CRIClient):
 
         return item
 
-    def reset(self) -> bool:
-        """Blocking wrapper around :func:`CRIController.reset_async`."""
-        return _run_sync(self.reset_async())
+    # --- Blocking Wrapper ---
 
-    def enable(self) -> bool:
-        """Blocking wrapper around :func:`CRIController.enable_async`."""
-        return _run_sync(self.enable_async())
-
-    def disable(self) -> bool:
-        """Blocking wrapper around :func:`CRIController.disable_async`."""
-        return _run_sync(self.disable_async())
-
-    def set_active_control(self, active: bool) -> bool:
-        """Blocking wrapper around :func:`CRIController.set_active_control_async`."""
-        return _run_sync(self.set_active_control_async(active=active))
-
-    def zero_all_joints(self) -> bool:
-        """Blocking wrapper around :func:`CRIController.zero_all_joints_async`."""
-        return _run_sync(self.zero_all_joints_async())
-
-    def reference_all_joints(self, *, timeout: float = 30) -> bool:
-        """Blocking wrapper around :func:`CRIController.reference_all_joints_async`."""
-        return _run_sync(self.reference_all_joints_async(timeout=timeout))
-
-    def reference_single_joint(self, joint: str, *, timeout: float = 30) -> bool:
-        """Blocking wrapper around :func:`CRIController.reference_single_joint_async`."""
-        return _run_sync(
-            self.reference_single_joint_async(joint=joint, timeout=timeout)
-        )
-
-    def get_referencing_info(self):
-        """Blocking wrapper around :func:`CRIController.get_referencing_info_async`."""
-        return _run_sync(self.get_referencing_info_async())
-
-    def move_joints(
-        self,
-        A1: float,
-        A2: float,
-        A3: float,
-        A4: float,
-        A5: float,
-        A6: float,
-        E1: float,
-        E2: float,
-        E3: float,
-        velocity: float,
-        wait_move_finished: bool = False,
-        move_finished_timeout: float | None = 300.0,
-        acceleration: float | None = None,
-    ) -> bool:
-        """Blocking wrapper around :func:`CRIController.move_joints_async`."""
-        return _run_sync(
-            self.move_joints_async(
-                A1=A1,
-                A2=A2,
-                A3=A3,
-                A4=A4,
-                A5=A5,
-                A6=A6,
-                E1=E1,
-                E2=E2,
-                E3=E3,
-                velocity=velocity,
-                wait_move_finished=wait_move_finished,
-                move_finished_timeout=move_finished_timeout,
-                acceleration=acceleration,
-            )
-        )
-
-    def move_joints_relative(
-        self,
-        A1: float,
-        A2: float,
-        A3: float,
-        A4: float,
-        A5: float,
-        A6: float,
-        E1: float,
-        E2: float,
-        E3: float,
-        velocity: float,
-        wait_move_finished: bool = False,
-        move_finished_timeout: float | None = 300.0,
-        acceleration: float | None = None,
-    ) -> bool:
-        """Blocking wrapper around :func:`CRIController.move_joints_relative_async`."""
-        return _run_sync(
-            self.move_joints_relative_async(
-                A1=A1,
-                A2=A2,
-                A3=A3,
-                A4=A4,
-                A5=A5,
-                A6=A6,
-                E1=E1,
-                E2=E2,
-                E3=E3,
-                velocity=velocity,
-                wait_move_finished=wait_move_finished,
-                move_finished_timeout=move_finished_timeout,
-                acceleration=acceleration,
-            )
-        )
-
-    def move_cartesian(
-        self,
-        X: float,
-        Y: float,
-        Z: float,
-        A: float,
-        B: float,
-        C: float,
-        E1: float,
-        E2: float,
-        E3: float,
-        velocity: float,
-        frame: str = "#base",
-        wait_move_finished: bool = False,
-        move_finished_timeout: float | None = 300.0,
-        acceleration: float | None = None,
-    ) -> bool:
-        """Blocking wrapper around :func:`CRIController.move_cartesian_async`."""
-        return _run_sync(
-            self.move_cartesian_async(
-                X=X,
-                Y=Y,
-                Z=Z,
-                A=A,
-                B=B,
-                C=C,
-                E1=E1,
-                E2=E2,
-                E3=E3,
-                velocity=velocity,
-                frame=frame,
-                wait_move_finished=wait_move_finished,
-                move_finished_timeout=move_finished_timeout,
-                acceleration=acceleration,
-            )
-        )
-
-    def move_base_relative(
-        self,
-        X: float,
-        Y: float,
-        Z: float,
-        A: float,
-        B: float,
-        C: float,
-        E1: float,
-        E2: float,
-        E3: float,
-        velocity: float,
-        frame: str = "#base",
-        wait_move_finished: bool = False,
-        move_finished_timeout: float | None = 300.0,
-        acceleration: float | None = None,
-    ) -> bool:
-        """Blocking wrapper around :func:`CRIController.move_base_relative_async`."""
-        return _run_sync(
-            self.move_base_relative_async(
-                X=X,
-                Y=Y,
-                Z=Z,
-                A=A,
-                B=B,
-                C=C,
-                E1=E1,
-                E2=E2,
-                E3=E3,
-                velocity=velocity,
-                frame=frame,
-                wait_move_finished=wait_move_finished,
-                move_finished_timeout=move_finished_timeout,
-                acceleration=acceleration,
-            )
-        )
-
-    def move_tool_relative(
-        self,
-        X: float,
-        Y: float,
-        Z: float,
-        A: float,
-        B: float,
-        C: float,
-        E1: float,
-        E2: float,
-        E3: float,
-        velocity: float,
-        frame: str = "#base",
-        wait_move_finished: bool = False,
-        move_finished_timeout: float | None = 300.0,
-        acceleration: float | None = None,
-    ) -> bool:
-        """Blocking wrapper around :func:`CRIController.move_tool_relative_async`."""
-        return _run_sync(
-            self.move_tool_relative_async(
-                X=X,
-                Y=Y,
-                Z=Z,
-                A=A,
-                B=B,
-                C=C,
-                E1=E1,
-                E2=E2,
-                E3=E3,
-                velocity=velocity,
-                frame=frame,
-                wait_move_finished=wait_move_finished,
-                move_finished_timeout=move_finished_timeout,
-                acceleration=acceleration,
-            )
-        )
-
-    def stop_move(self) -> bool:
-        """Blocking wrapper around :func:`CRIController.stop_move_async`."""
-        return _run_sync(self.stop_move_async())
-
-    def set_motion_type(self, motion_type: MotionType):
-        """Blocking wrapper around :func:`CRIController.set_motion_type_async`."""
-        return _run_sync(self.set_motion_type_async(motion_type))
-
-    def set_override(self, override: float):
-        """Blocking wrapper around :func:`CRIController.set_override_async`."""
-        return _run_sync(self.set_override_async(override))
-
-    def set_dout(self, id: int, value: bool):
-        """Blocking wrapper around :func:`CRIController.set_dout_async`."""
-        return _run_sync(self.set_dout_async(id=id, value=value))
-
-    def set_din(self, id: int, value: bool):
-        """Blocking wrapper around :func:`CRIController.set_din_async`."""
-        return _run_sync(self.set_din_async(id=id, value=value))
-
-    def set_global_signal(self, id: int, value: bool):
-        """Blocking wrapper around :func:`CRIController.set_global_signal_async`."""
-        return _run_sync(self.set_global_signal_async(id=id, value=value))
-
-    def load_programm(self, program_name: str) -> bool:
-        """Blocking wrapper around :func:`CRIController.load_programm_async`."""
-        return _run_sync(self.load_programm_async(program_name))
-
-    def load_logic_programm(self, program_name: str) -> bool:
-        """Blocking wrapper around :func:`CRIController.load_logic_programm_async`."""
-        return _run_sync(self.load_logic_programm_async(program_name))
-
-    def start_programm(self, *, replay_mode: ReplayMode | None = None) -> bool:
-        """Blocking wrapper around :func:`CRIController.start_programm_async`."""
-        return _run_sync(self.start_programm_async(replay_mode=replay_mode))
-
-    def stop_programm(self) -> bool:
-        """Blocking wrapper around :func:`CRIController.stop_programm_async`."""
-        return _run_sync(self.stop_programm_async())
-
-    def pause_programm(self) -> bool:
-        """Blocking wrapper around :func:`CRIController.pause_programm_async`."""
-        return _run_sync(self.pause_programm_async())
+    reset = blocking_wrapper(reset_async)
+    enable = blocking_wrapper(enable_async)
+    disable = blocking_wrapper(disable_async)
+    set_active_control = blocking_wrapper(set_active_control_async)
+    zero_all_joints = blocking_wrapper(zero_all_joints_async)
+    reference_all_joints = blocking_wrapper(reference_all_joints_async)
+    reference_single_joint = blocking_wrapper(reference_single_joint_async)
+    get_referencing_info = blocking_wrapper(get_referencing_info_async)
+    move_joints = blocking_wrapper(move_joints_async)
+    move_joints_relative = blocking_wrapper(move_joints_relative_async)
+    move_cartesian = blocking_wrapper(move_cartesian_async)
+    move_base_relative = blocking_wrapper(move_base_relative_async)
+    move_tool_relative = blocking_wrapper(move_tool_relative_async)
+    stop_move = blocking_wrapper(stop_move_async)
+    set_motion_type = blocking_wrapper(set_motion_type_async)
+    set_override = blocking_wrapper(set_override_async)
+    set_dout = blocking_wrapper(set_dout_async)
+    set_din = blocking_wrapper(set_din_async)
+    set_global_signal = blocking_wrapper(set_global_signal_async)
+    load_program = blocking_wrapper(load_program_async)
+    load_logic_program = blocking_wrapper(load_logic_program_async)
+    start_program = blocking_wrapper(start_program_async)
+    stop_program = blocking_wrapper(stop_program_async)
+    pause_program = blocking_wrapper(pause_program_async)
 
 
 # Monkey patch to maintain backward compatibility
