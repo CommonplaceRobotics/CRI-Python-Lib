@@ -24,6 +24,28 @@ from .robot_state import (
 logger = logging.getLogger(__name__)
 
 
+def to_ReferencingAxisState(cri_value: int) -> ReferencingAxisState:
+    """
+    Parses a referencing state bitset value from CRI into the ReferencingAxisState enum
+
+    Parameters
+    ----------
+        cri_value: referencing state value from CRI, this is an integer encoded bitset
+
+    Returns
+    -------
+        Parsed ReferencingAxisState value
+    """
+    all_axes_referenced = (cri_value & 0x1) != 0
+    is_referencing = (cri_value & 0x2) != 0
+    if is_referencing:
+        return ReferencingAxisState.REFERENCING
+    elif all_axes_referenced:
+        return ReferencingAxisState.REFERENCED
+    else:
+        return ReferencingAxisState.NOT_REFERENCED
+
+
 class CRIProtocolParser:
     """Class handling the parsing of CRI messages to the robot state."""
 
@@ -674,19 +696,19 @@ class CRIProtocolParser:
                 parameters.insert(14, parameters[14][0])
 
             ref_state = ReferencingState(
-                global_state=ReferencingAxisState(int(parameters[1])),
-                A1=ReferencingAxisState(int(parameters[3])),
-                A2=ReferencingAxisState(int(parameters[4])),
-                A3=ReferencingAxisState(int(parameters[5])),
-                A4=ReferencingAxisState(int(parameters[6])),
-                A5=ReferencingAxisState(int(parameters[7])),
-                A6=ReferencingAxisState(int(parameters[8])),
-                E1=ReferencingAxisState(int(parameters[9])),
-                E2=ReferencingAxisState(int(parameters[10])),
-                E3=ReferencingAxisState(int(parameters[11])),
-                E4=ReferencingAxisState(int(parameters[12])),
-                E5=ReferencingAxisState(int(parameters[13])),
-                E6=ReferencingAxisState(int(parameters[14])),
+                global_state=to_ReferencingAxisState(int(parameters[1])),
+                A1=to_ReferencingAxisState(int(parameters[3])),
+                A2=to_ReferencingAxisState(int(parameters[4])),
+                A3=to_ReferencingAxisState(int(parameters[5])),
+                A4=to_ReferencingAxisState(int(parameters[6])),
+                A5=to_ReferencingAxisState(int(parameters[7])),
+                A6=to_ReferencingAxisState(int(parameters[8])),
+                E1=to_ReferencingAxisState(int(parameters[9])),
+                E2=to_ReferencingAxisState(int(parameters[10])),
+                E3=to_ReferencingAxisState(int(parameters[11])),
+                E4=to_ReferencingAxisState(int(parameters[12])),
+                E5=to_ReferencingAxisState(int(parameters[13])),
+                E6=to_ReferencingAxisState(int(parameters[14])),
                 mandatory=bool(parameters[16] == "1"),
                 ref_prog_enabled=bool(parameters[18] == "1"),
                 ref_prog_running=bool(parameters[19] == "1"),

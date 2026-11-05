@@ -39,6 +39,8 @@ In the top directory of this repository execute `pip install .`
 The library provides the `CRIController` class which is the main interface to controll the iRC. It handles the network connection and starts background threads for keep alive messages and processing of received messages. Movement functions directly return even though the move might not be finisched. If you want to wait for the move to finish, set the `wait_move_finished` parameter to `True`.
 Most function return a bool to check whether the execution was successful.
 
+The low-level `CRIController.send_command(...)` method returns a `SentCommand` with a `message_id` and an `answer_event` (`None` when no answer was registered).
+
 ### Typical procedure
 1. Connect to iRC: `CRIController.connect(...)` Default IP is `192.168.3.11` with port `3920`. For using the simulation in the iRC desktop software, connect to `127.0.0.1`, most of the time the port in the simulation is `3921`, but can be different. Have a look at the log if you are unable to connect. Check whether connection was successfull via the returned bool.
 2. If you want to control the robot, acquire active control via `CRIController.set_active_control(True)`.

@@ -16,10 +16,11 @@ controller = CRIController()
 # Connect to default iRC IP
 # Simulator
 ip = "127.0.0.1"
-port = 3922
+# The simulator uses the first available port in the range 3921-3931.
+port = 3921
 # Real robot
 # ip = "192.168.3.11"
-# port = 3921
+# port = 3920
 if not controller.connect(ip, port):
     logger.error("Unable to connect to iRC! Ensure the simulator is running.")
     quit()

@@ -1,9 +1,11 @@
+import asyncio
 import copy
 import threading
 
 import pytest
 
 from cri_lib import (
+    CRICommandTimeOutError,
     CRIController,
     CRIProtocolParser,
     ErrorStates,
@@ -20,6 +22,7 @@ from cri_lib import (
     RobotMode,
     RobotState,
     RunState,
+    SentCommand,
 )
 
 
@@ -31,6 +34,12 @@ def robot_state_equal(actual: RobotState, expected: RobotState) -> bool:
     expected_copy = copy.deepcopy(expected)
     expected_copy.category_time_ns.update(actual.category_time_ns)
     return actual == expected_copy
+
+
+def register_test_event(controller: CRIController, answer_id: str) -> asyncio.Event:
+    event = asyncio.Event()
+    controller.answer_events.setdefault(answer_id, []).append(event)
+    return event
 
 
 def test_parse_state():
@@ -668,21 +677,182 @@ def test_parse_cmdack():
     test_message = "CRISTART 1234 CMDACK 123 CRIEND"
 
     controller = CRIController()
-    controller.answer_events["123"] = threading.Event()
+    event = register_test_event(controller, "123")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["123"].is_set()
+    assert event.is_set()
+
+
+def test_status_notification_wakes_all_registered_waiters():
+    controller = CRIController()
+    first_event = controller._register_answer("status")
+    second_event = controller._register_answer("status")
+
+    controller._parse_message("CRISTART 1234 STATUS MODE joint CRIEND")
+
+    assert first_event is not second_event
+    assert first_event.is_set()
+    assert second_event.is_set()
+
+
+def test_send_command_returns_its_answer_event(monkeypatch):
+    controller = CRIController()
+
+    class ImmediateReplySocket:
+        sent_message = b""
+
+        def sendall(self, message: bytes) -> None:
+            self.sent_message = message
+            controller._parse_message("CRISTART 1234 CMDACK 0 CRIEND")
+
+    fake_socket = ImmediateReplySocket()
+    monkeypatch.setattr(controller, "sock", fake_socket)
+    controller.connected = True
+
+    sent_command = controller._send_command("CMD Test", register_answer=True)
+    unregistered_command = controller._send_command("CMD FireAndForget")
+
+    assert sent_command.message_id == 0
+    assert sent_command.answer_event is not None
+    assert sent_command.answer_event.is_set()
+    assert fake_socket.sent_message == b"CRISTART 1 CMD FireAndForget CRIEND"
+    assert unregistered_command.message_id == 1
+    assert unregistered_command.answer_event is None
+
+
+def test_concurrent_status_waiters_complete_and_clean_up():
+    async def scenario():
+        controller = CRIController()
+        callbacks = []
+        controller.register_status_callback(callbacks.append)
+        waiters = [
+            asyncio.create_task(controller.wait_for_status_update_async(timeout=1.0))
+            for _ in range(2)
+        ]
+
+        for _ in range(100):
+            if len(controller.answer_events.get("status", [])) == 2:
+                break
+            await asyncio.sleep(0.001)
+
+        assert len(controller.answer_events["status"]) == 2
+        controller._parse_message("CRISTART 1234 STATUS MODE joint CRIEND")
+        await asyncio.gather(*waiters)
+
+        assert controller.answer_events == {}
+        assert len(callbacks) == 1
+
+    asyncio.run(scenario())
+
+
+def test_shared_error_is_returned_to_each_waiter():
+    async def scenario():
+        controller = CRIController()
+        first_event = controller._register_answer("123")
+        second_event = controller._register_answer("123")
+        waiters = [
+            asyncio.create_task(
+                controller._wait_for_answer_async("123", answer_event=event)
+            )
+            for event in (first_event, second_event)
+        ]
+
+        controller._parse_message(
+            "CRISTART 1234 CMDERROR 123 There was an exception CRIEND"
+        )
+
+        assert await asyncio.gather(*waiters) == [
+            "There was an exception",
+            "There was an exception",
+        ]
+        assert controller.answer_events == {}
+        assert controller.error_messages == {}
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_waiter_does_not_remove_other_registration():
+    async def scenario():
+        controller = CRIController()
+        cancelled_event = controller._register_answer("123")
+        remaining_event = controller._register_answer("123")
+        cancelled_waiter = asyncio.create_task(
+            controller._wait_for_answer_async("123", answer_event=cancelled_event)
+        )
+        remaining_waiter = asyncio.create_task(
+            controller._wait_for_answer_async("123", answer_event=remaining_event)
+        )
+        await asyncio.sleep(0)
+        cancelled_waiter.cancel()
+        try:
+            await cancelled_waiter
+        except asyncio.CancelledError:
+            pass
+
+        assert controller.answer_events["123"] == [remaining_event]
+        controller._parse_message("CRISTART 1234 CMDACK 123 CRIEND")
+        assert await remaining_waiter is None
+        assert controller.answer_events == {}
+
+    asyncio.run(scenario())
+
+
+def test_timeout_removes_fixed_key_event_by_identity():
+    async def scenario():
+        controller = CRIController()
+        event = controller._register_answer("info_filelist")
+
+        with pytest.raises(CRICommandTimeOutError):
+            await controller._wait_for_answer_async(SentCommand(42, event), timeout=0.0)
+
+        assert controller.answer_events == {}
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_move_waiters_share_completion_notification(monkeypatch):
+    async def scenario():
+        controller = CRIController()
+        next_message_id = iter((10, 11))
+
+        def send_command(command: str, register_answer: bool) -> SentCommand:
+            message_id = next(next_message_id)
+            answer_event = controller._register_answer(str(message_id))
+            controller._parse_message(f"CRISTART 1234 CMDACK {message_id} CRIEND")
+            return SentCommand(message_id, answer_event)
+
+        monkeypatch.setattr(controller, "_send_command", send_command)
+        waiters = [
+            asyncio.create_task(
+                controller._send_move_command_and_wait(
+                    "CMD Move Joint", "MOVETOEXECEND", True, 1.0
+                )
+            )
+            for _ in range(2)
+        ]
+
+        for _ in range(100):
+            if len(controller.answer_events.get("MOVETOEXECEND", [])) == 2:
+                break
+            await asyncio.sleep(0.001)
+
+        assert len(controller.answer_events["MOVETOEXECEND"]) == 2
+        controller._parse_message("CRISTART 1234 MOVETOEXECEND 0 0 CRIEND")
+        assert await asyncio.gather(*waiters) == [(None, None), (None, None)]
+        assert controller.answer_events == {}
+
+    asyncio.run(scenario())
 
 
 def test_parse_cmderror():
     test_message = "CRISTART 1234 CMDERROR 123 There was an exception CRIEND"
 
     controller = CRIController()
-    controller.answer_events["123"] = threading.Event()
+    event = register_test_event(controller, "123")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["123"].is_set()
-    assert controller.error_messages["123"] == "There was an exception"
+    assert event.is_set()
+    assert controller.error_messages[event] == "There was an exception"
 
 
 def test_info_referencinginfo():
@@ -746,23 +916,21 @@ def test_parse_execend():
     test_message = "CRISTART 1234 EXECEND 0 0 CRIEND"
 
     controller = CRIController()
-    controller.answer_events["EXECEND"] = threading.Event()
+    event = register_test_event(controller, "EXECEND")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["EXECEND"].is_set()
+    assert event.is_set()
 
 
 def test_parse_execerror():
     test_message = "CRISTART 67 EXECERROR 0 0 PGLinear exception: 'Out of reach' CRIEND"
 
     controller = CRIController()
-    controller.answer_events["EXECEND"] = threading.Event()
+    event = register_test_event(controller, "EXECEND")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["EXECEND"].is_set()
-    assert (
-        controller.error_messages["EXECEND"] == "0 0 PGLinear exception: 'Out of reach'"
-    )
+    assert event.is_set()
+    assert controller.error_messages[event] == "0 0 PGLinear exception: 'Out of reach'"
 
 
 def test_parse_can_brdige():
@@ -777,10 +945,10 @@ def test_parse_can_brdige():
     }
 
     controller = CRIController()
-    controller.answer_events["CAN"] = threading.Event()
+    event = register_test_event(controller, "CAN")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["CAN"].is_set()
+    assert event.is_set()
     assert controller.can_queue.get_nowait() == can_message
 
 
@@ -807,10 +975,10 @@ def test_info_boardtemps():
     ]
 
     controller = CRIController()
-    controller.answer_events["info_boardtemp"] = threading.Event()
+    event = register_test_event(controller, "info_boardtemp")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["info_boardtemp"].is_set()
+    assert event.is_set()
     assert controller.robot_state.board_temps == pytest.approx(board_temps)
 
 
@@ -837,10 +1005,10 @@ def test_info_motortemps():
     ]
 
     controller = CRIController()
-    controller.answer_events["info_motortemp"] = threading.Event()
+    event = register_test_event(controller, "info_motortemp")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["info_motortemp"].is_set()
+    assert event.is_set()
     assert controller.robot_state.motor_temps == pytest.approx(motor_temps)
 
 
@@ -850,9 +1018,9 @@ def test_list_files():
     )
 
     controller = CRIController()
-    controller.answer_events["info_filelist"] = threading.Event()
+    event = register_test_event(controller, "info_filelist")
     controller._parse_message(test_message)
 
-    assert controller.answer_events["info_filelist"].is_set()
+    assert event.is_set()
     assert "FirstFile.xml" in controller.file_list
     assert "SecondFile.txt" in controller.file_list

@@ -10,7 +10,9 @@ from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
 from time import sleep, time
-from typing import Any, Callable, Literal, ParamSpec, TypeVar, Coroutine
+
+from typing import Any, Callable, Coroutine, Literal, ParamSpec, TypeVar
+
 
 from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
 from .cri_protocol_parser import CRIProtocolParser
@@ -55,6 +57,13 @@ DEFAULT = object()
 """Placeholder for defaulting a parameter to runtime-configurable default values."""
 REQUIRED_STATUS_CATEGORIES = {"STATUS", "RUNSTATE"}
 """Robot state message categories that must must be received before confirming fully connected."""
+
+
+class SentCommand(NamedTuple):
+    """The wire message ID and its optional answer event."""
+
+    message_id: int
+    answer_event: asyncio.Event | None
 
 
 class MotionType(Enum):
@@ -111,8 +120,8 @@ class CRIClient:
         self.sent_command_counter_lock = threading.Lock()
         self.sent_command_counter = 0
         self.answer_events_lock = threading.Lock()
-        self.answer_events: dict[str, asyncio.Event] = {}
-        self.error_messages: dict[str, str] = {}
+        self.answer_events: dict[str, list[asyncio.Event]] = {}
+        self.error_messages: dict[asyncio.Event, str] = {}
 
         self.status_callback: Callable | None = None
 
@@ -200,16 +209,28 @@ class CRIClient:
 
         self.sock.close()
 
-    def _register_answer(self, answer_id: str) -> None:
+    def _register_answer(self, answer_id: str) -> asyncio.Event:
+        event = asyncio.Event()
         with self.answer_events_lock:
-            self.answer_events[answer_id] = asyncio.Event()
+            self.answer_events.setdefault(answer_id, []).append(event)
+        return event
+
+    def _remove_answer_event(self, event: asyncio.Event) -> None:
+        with self.answer_events_lock:
+            for answer_id, events in list(self.answer_events.items()):
+                if event in events:
+                    events.remove(event)
+                    if not events:
+                        del self.answer_events[answer_id]
+                    break
+            self.error_messages.pop(event, None)
 
     def _send_command(
         self,
         command: str,
         register_answer: bool = False,
         fixed_answer_name: str | None = None,
-    ) -> int:
+    ) -> SentCommand:
         """Sends the given command to iRC.
 
         The method is marked private because technically it can be used to send control commands as well.
@@ -221,8 +242,8 @@ class CRIClient:
 
         Returns
         -------
-        int
-            The sent message_id.
+        SentCommand
+            The sent message ID and its registered answer event, if any.
 
         Raises
         ------
@@ -245,28 +266,22 @@ class CRIClient:
 
         message = f"CRISTART {command_counter} {command} CRIEND"
 
-        if register_answer:
-            with self.answer_events_lock:
-                if fixed_answer_name is not None:
-                    self.answer_events[fixed_answer_name] = asyncio.Event()
-                else:
-                    self.answer_events[str(command_counter)] = asyncio.Event()
+        answer_id = (
+            fixed_answer_name if fixed_answer_name is not None else str(command_counter)
+        )
+        answer_event = self._register_answer(answer_id) if register_answer else None
 
         try:
             with self.socket_write_lock:
                 self.sock.sendall(message.encode())
             logger.debug("Sent command: %s", message)
 
-            return command_counter
+            return SentCommand(command_counter, answer_event)
 
         except Exception as e:
             logger.exception("Failed to send command.")
-            if register_answer:
-                with self.answer_events_lock:
-                    if fixed_answer_name is not None:
-                        del self.answer_events[fixed_answer_name]
-                    else:
-                        del self.answer_events[str(command_counter)]
+            if answer_event is not None:
+                self._remove_answer_event(answer_event)
             self.connected = False
             raise CRIConnectionError("ConnectionLost")
 
@@ -275,10 +290,7 @@ class CRIClient:
         Background Thread sending alivejog messages to keep connection alive.
         """
         while self.connected:
-            if self._send_command("ALIVEJOG 0 0 0 0 0 0 0 0 0") is None:
-                logger.error("AliveJog Thread: Connection lost.")
-                self.connected = False
-                return
+            self._send_command("ALIVEJOG 0 0 0 0 0 0 0 0 0")
 
             sleep(self.jog_intervall)
 
@@ -307,48 +319,60 @@ class CRIClient:
 
             continue_parsing = True
             while continue_parsing:
-                # check for an end of message
-                end_idx = message_buffer.find(b"CRIEND")
-                if end_idx != -1:
-                    start_idx = message_buffer.find(b"CRISTART")
+                try:
+                    # check for an end of message
+                    end_idx = message_buffer.find(b"CRIEND")
+                    if end_idx != -1:
+                        start_idx = message_buffer.find(b"CRISTART")
 
-                    # check if there is a complete message
-                    if start_idx != -1:
-                        message = message_buffer[start_idx : end_idx + 6].decode()
-                        self._parse_message(message)
+                        # check if there is a complete message
+                        if start_idx != -1:
+                            message = message_buffer[start_idx : end_idx + 6].decode()
+                            self._parse_message(message)
 
-                    # check if there is data left in the buffer
-                    if len(message_buffer) > end_idx + 7:
-                        message_buffer = message_buffer[end_idx + 7 :]
+                        # check if there is data left in the buffer
+                        if len(message_buffer) > end_idx + 7:
+                            message_buffer = message_buffer[end_idx + 7 :]
+                        else:
+                            message_buffer.clear()
                     else:
-                        message_buffer.clear()
-                else:
-                    continue_parsing = False
+                        continue_parsing = False
+                except Exception as ex:
+                    logger.error(
+                        "Receive Thread: Failed to parse message, clearing buffer: "
+                        + str(ex)
+                    )
+                    message_buffer.clear()
 
     def _wait_for_answer(
         self,
-        message_id: str | int,
+        message_id: str | int | SentCommand,
         timeout: float | None = DEFAULT,  # type: ignore
+        answer_event: asyncio.Event | None = None,
     ) -> None | str:
-        return _run_sync(self._wait_for_answer_async(message_id, timeout))
+        return _run_sync(self._wait_for_answer_async(message_id, timeout, answer_event))
 
     async def _wait_for_answer_async(
         self,
-        message_id: str | int,
+        message_id: str | int | SentCommand,
         timeout: float | None = DEFAULT,  # type: ignore
+        answer_event: asyncio.Event | None = None,
     ) -> None | str:
         """Waits for an answer to a message.
         The answer event will be removed after the call, even if there was a timeout. Choose timeout accordingly.
 
         Parameters
         ----------
-        message_id : int or str
-            message id of sent message of which an answer is expected
+        message_id : int, str, or SentCommand
+            Sent command result or message ID associated with the answer.
 
         timeout : float | DEFAULT | None
             timeout for wait in seconds.
             - `DEFAULT` uses `self.DEFAULT_ANSWER_TIMEOUT`
             - `None` will wait 24 hours.
+
+        answer_event : asyncio.Event | None
+            Exact event returned by ``_send_command`` or registered for a response key.
 
         Returns
         -------
@@ -358,37 +382,34 @@ class CRIClient:
 
         Raises
         ------
-        CRITimeoutError
+        CRICommandTimeOutError
             raised if no answer was received in given timeout
 
         """
-        message_id = str(message_id)
-        with self.answer_events_lock:
-            if message_id not in self.answer_events:
-                return None
-            wait_event = self.answer_events[message_id]
+        if isinstance(message_id, SentCommand):
+            answer_event = message_id.answer_event
+            message_id = message_id.message_id
+        answer_id = str(message_id)
+        if answer_event is None:
+            return None
 
         if timeout is DEFAULT:
             timeout = self.DEFAULT_ANSWER_TIMEOUT
         if timeout is None:
             timeout = 24 * 3600
+        error_msg = None
         try:
-            await wait_event_with_timeout(wait_event, timeout=timeout)
+            await wait_event_with_timeout(answer_event, timeout=timeout)
+            with self.answer_events_lock:
+                error_msg = self.error_messages.get(answer_event)
         except TimeoutError as ex:
             raise CRICommandTimeOutError(
-                f"Did not receive {message_id=} answer within {timeout=} s."
+                f"Did not receive {answer_id=} answer within {timeout=} s."
             ) from ex
+        finally:
+            self._remove_answer_event(answer_event)
 
-        # prevent deadlock through answer_events_lock
-        with self.answer_events_lock:
-            del self.answer_events[message_id]
-
-            if message_id in self.error_messages:
-                error_msg = self.error_messages[message_id]
-                del self.error_messages[message_id]
-                return error_msg
-            else:
-                return None
+        return error_msg
 
     def _parse_message(self, message: str) -> None:
         """Internal function to parse a message. If an answer event is registered for a certain msg_id it is triggered."""
@@ -408,11 +429,13 @@ class CRIClient:
             with self.answer_events_lock:
                 msg_id = notification["answer"]
 
-                if msg_id in self.answer_events:
-                    if (error_msg := notification.get("error", None)) is not None:
-                        self.error_messages[msg_id] = error_msg
-
-                    self.answer_events[msg_id].set()
+                if msg_id is not None:
+                    events = self.answer_events.pop(msg_id, [])
+                    error_msg = notification.get("error")
+                    for event in events:
+                        if error_msg is not None:
+                            self.error_messages[event] = error_msg
+                        event.set()
 
     async def wait_for_status_update_async(self, timeout: float | None = None) -> None:
         """Wait for next STATUS message.
@@ -427,8 +450,8 @@ class CRIClient:
         CRITimeoutError
             raised if no status update was received in given timeout
         """
-        self._register_answer("status")
-        await self._wait_for_answer_async("status", timeout)
+        answer_event = self._register_answer("status")
+        await self._wait_for_answer_async("status", timeout, answer_event)
 
     def register_status_callback(self, callback: Callable | None) -> None:
         """Register a callback which is called every time a STATUS message was parsed to the state.
@@ -485,10 +508,10 @@ class CRIClient:
         -------
         list of motor controller PCB temperatures
         """
-        self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
+        sent_command = self._send_command("SYSTEM GetBoardTemp", True, "info_boardtemp")
         if (
             error_msg := await self._wait_for_answer_async(
-                "info_boardtemp", timeout=timeout
+                sent_command, timeout=timeout
             )
         ) is not None:
             raise CRICommandError(f"Error in GetBoardTemp command: {error_msg}")
@@ -509,10 +532,10 @@ class CRIClient:
         -------
         list of motor temperatures
         """
-        self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
+        sent_command = self._send_command("SYSTEM GetMotorTemp", True, "info_motortemp")
         if (
             error_msg := await self._wait_for_answer_async(
-                "info_motortemp", timeout=timeout
+                sent_command, timeout=timeout
             )
         ) is not None:
             raise CRICommandError(f"Error in GetMotorTemp command: {error_msg}")
@@ -532,12 +555,10 @@ class CRIClient:
         """
 
         command = f"CMD ListFiles {target_directory}"
-        self._send_command(
+        sent_command = self._send_command(
             command=command, register_answer=True, fixed_answer_name="info_filelist"
         )
-        if (
-            error_msg := await self._wait_for_answer_async("info_filelist")
-        ) is not None:
+        if (error_msg := await self._wait_for_answer_async(sent_command)) is not None:
             raise CRICommandError(f"Error in ListFiles command: {error_msg}")
         # the obtained file list is cached in the parser
         with self.parser.file_list_lock:
@@ -602,15 +623,17 @@ class CRIController(CRIClient):
             else:
                 command = "ALIVEJOG 0 0 0 0 0 0 0 0 0"
 
-            if self._send_command(command) is None:
-                logger.error("AliveJog Thread: Connection lost.")
-                self.connected = False
-                return
+            self._send_command(command)
 
             sleep(self.jog_intervall)
 
-    def send_command(self, command, register_answer=False, fixed_answer_name=None):
-        """Wraps the superclass method to make it public."""
+    def send_command(
+        self,
+        command: str,
+        register_answer: bool = False,
+        fixed_answer_name: str | None = None,
+    ) -> SentCommand:
+        """Send a raw command and return its message ID and optional answer event."""
         return super()._send_command(command, register_answer, fixed_answer_name)
 
     async def reset_async(self) -> bool:
@@ -672,16 +695,12 @@ class CRIController(CRIClient):
             `True` acquire active control
             `False` return active control
         """
-        self._send_command(
+        sent_command = self._send_command(
             f"CMD SetActive {str(active).lower()}",
             True,
             f"Active_{str(active).lower()}",
         )
-        if (
-            error_msg := await self._wait_for_answer_async(
-                f"Active_{str(active).lower()}"
-            )
-        ) is not None:
+        if (error_msg := await self._wait_for_answer_async(sent_command)) is not None:
             logger.debug("Error in set active control command: %s", error_msg)
             return False
         else:
@@ -763,14 +782,42 @@ class CRIController(CRIClient):
             `True` if request was successful
             `False` if request was not successful
         """
-        self._send_command("CMD GetReferencingInfo", True, "info_referencing")
-        if (
-            error_msg := await self._wait_for_answer_async("info_referencing")
-        ) is not None:
+        sent_command = self._send_command(
+            "CMD GetReferencingInfo", True, "info_referencing"
+        )
+        if (error_msg := await self._wait_for_answer_async(sent_command)) is not None:
             logger.debug("Error in GetReferencingInfo command: %s", error_msg)
             return False
         else:
             return True
+
+    async def _send_move_command_and_wait(
+        self,
+        command: str,
+        completion_response: str,
+        wait_move_finished: bool,
+        move_finished_timeout: float | None,
+    ) -> tuple[str | None, str | None]:
+        completion_event = (
+            self._register_answer(completion_response) if wait_move_finished else None
+        )
+        try:
+            sent_command = self._send_command(command, True)
+            command_error = await self._wait_for_answer_async(
+                sent_command, timeout=30.0
+            )
+            if command_error is not None or completion_event is None:
+                return command_error, None
+
+            completion_error = await self._wait_for_answer_async(
+                completion_response,
+                timeout=move_finished_timeout,
+                answer_event=completion_event,
+            )
+            return None, completion_error
+        finally:
+            if completion_event is not None:
+                self._remove_answer_event(completion_event)
 
     async def move_joints_async(
         self,
@@ -826,24 +873,19 @@ class CRIController(CRIClient):
         else:
             expected_response = "MOVETOEXECEND"
 
-        if wait_move_finished:
-            self._register_answer(expected_response)
-
-        msg_id = self._send_command(command, True)
-        if (
-            error_msg := await self._wait_for_answer_async(msg_id, timeout=30.0)
-        ) is not None:
-            logger.debug("Error in Move Joints command: %s", error_msg)
+        command_error, completion_error = await self._send_move_command_and_wait(
+            command,
+            expected_response,
+            wait_move_finished,
+            move_finished_timeout,
+        )
+        if command_error is not None:
+            logger.debug("Error in Move Joints command: %s", command_error)
             return False
 
-        if wait_move_finished:
-            if (
-                error_msg := await self._wait_for_answer_async(
-                    expected_response, timeout=move_finished_timeout
-                )
-            ) is not None:
-                logger.debug("Exec Error in Move Joints command: %s", error_msg)
-                return False
+        if completion_error is not None:
+            logger.debug("Exec Error in Move Joints command: %s", completion_error)
+            return False
         return True
 
     async def move_joints_relative_async(
@@ -898,26 +940,21 @@ class CRIController(CRIClient):
         else:
             expected_response = "MOVETOEXECEND"
 
-        if wait_move_finished:
-            self._register_answer(expected_response)
-
-        msg_id = self._send_command(command, True)
-        if (
-            error_msg := await self._wait_for_answer_async(msg_id, timeout=30.0)
-        ) is not None:
-            logger.debug("Error in Move Joints command: %s", error_msg)
+        command_error, completion_error = await self._send_move_command_and_wait(
+            command,
+            expected_response,
+            wait_move_finished,
+            move_finished_timeout,
+        )
+        if command_error is not None:
+            logger.debug("Error in Move Joints command: %s", command_error)
             return False
 
-        if wait_move_finished:
-            if (
-                error_msg := await self._wait_for_answer_async(
-                    expected_response, timeout=move_finished_timeout
-                )
-            ) is not None:
-                logger.debug(
-                    "Exec Error in Move Joints Relative command: %s", error_msg
-                )
-                return False
+        if completion_error is not None:
+            logger.debug(
+                "Exec Error in Move Joints Relative command: %s", completion_error
+            )
+            return False
         return True
 
     async def move_cartesian_async(
@@ -978,24 +1015,19 @@ class CRIController(CRIClient):
         else:
             expected_response = "MOVETOEXECEND"
 
-        if wait_move_finished:
-            self._register_answer(expected_response)
-
-        msg_id = self._send_command(command, True)
-        if (
-            error_msg := await self._wait_for_answer_async(msg_id, timeout=30.0)
-        ) is not None:
-            logger.debug("Error in Move Joints command: %s", error_msg)
+        command_error, completion_error = await self._send_move_command_and_wait(
+            command,
+            expected_response,
+            wait_move_finished,
+            move_finished_timeout,
+        )
+        if command_error is not None:
+            logger.debug("Error in Move Joints command: %s", command_error)
             return False
 
-        if wait_move_finished:
-            if (
-                error_msg := await self._wait_for_answer_async(
-                    expected_response, timeout=move_finished_timeout
-                )
-            ) is not None:
-                logger.debug("Exec Error in Move Cartesian command: %s", error_msg)
-                return False
+        if completion_error is not None:
+            logger.debug("Exec Error in Move Cartesian command: %s", completion_error)
+            return False
 
         return True
 
@@ -1055,24 +1087,21 @@ class CRIController(CRIClient):
         else:
             expected_response = "MOVETOEXECEND"
 
-        if wait_move_finished:
-            self._register_answer(expected_response)
-
-        msg_id = self._send_command(command, True)
-        if (
-            error_msg := await self._wait_for_answer_async(msg_id, timeout=30.0)
-        ) is not None:
-            logger.debug("Error in Move Joints command: %s", error_msg)
+        command_error, completion_error = await self._send_move_command_and_wait(
+            command,
+            expected_response,
+            wait_move_finished,
+            move_finished_timeout,
+        )
+        if command_error is not None:
+            logger.debug("Error in Move Joints command: %s", command_error)
             return False
 
-        if wait_move_finished:
-            if (
-                error_msg := await self._wait_for_answer_async(
-                    expected_response, timeout=move_finished_timeout
-                )
-            ) is not None:
-                logger.debug("Exec Error in Move BaseRelative command: %s", error_msg)
-                return False
+        if completion_error is not None:
+            logger.debug(
+                "Exec Error in Move BaseRelative command: %s", completion_error
+            )
+            return False
 
         return True
 
@@ -1132,24 +1161,19 @@ class CRIController(CRIClient):
         else:
             expected_response = "MOVETOEXECEND"
 
-        if wait_move_finished:
-            self._register_answer(expected_response)
-
-        msg_id = self._send_command(command, True)
-        if (
-            error_msg := await self._wait_for_answer_async(msg_id, timeout=30.0)
-        ) is not None:
-            logger.debug("Error in Move Joints command: %s", error_msg)
+        command_error, completion_error = await self._send_move_command_and_wait(
+            command,
+            expected_response,
+            wait_move_finished,
+            move_finished_timeout,
+        )
+        if command_error is not None:
+            logger.debug("Error in Move Joints command: %s", command_error)
             return False
 
-        if wait_move_finished:
-            if (
-                error_msg := await self._wait_for_answer_async(
-                    expected_response, timeout=move_finished_timeout
-                )
-            ) is not None:
-                logger.debug("Exec Error in Move BaseTool command: %s", error_msg)
-                return False
+        if completion_error is not None:
+            logger.debug("Exec Error in Move BaseTool command: %s", completion_error)
+            return False
 
         return True
 
