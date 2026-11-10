@@ -1667,6 +1667,19 @@ class CRIController(CRIClient):
     stop_program = blocking_wrapper(stop_program_async)
     pause_program = blocking_wrapper(pause_program_async)
 
+    # --- Backward Compatibility Aliases ---
+    load_programm_async = load_program_async
+    load_logic_programm_async = load_logic_program_async
+    start_programm_async = start_program_async
+    stop_programm_async = stop_program_async
+    pause_programm_async = pause_program_async
+
+    load_programm = load_program
+    load_logic_programm = load_logic_program
+    start_programm = start_program
+    stop_programm = stop_program
+    pause_programm = pause_program
+
 
 # Monkey patch to maintain backward compatibility
 CRIController.MotionType = MotionType  # type: ignore
