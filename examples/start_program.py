@@ -39,15 +39,15 @@ controller.wait_for_kinematics_ready(10)
 controller.set_override(50.0)
 
 logger.info("Load program")
-if not controller.load_programm("ReBeL_MoveToZero.xml"):
-    logger.error("unable to load programm")
+if not controller.load_program("ReBeL_MoveToZero.xml"):
+    logger.error("unable to load program")
     controller.disable()
     controller.close()
     quit()
 
 logger.info("Start program")
-if not controller.start_programm():
-    logger.error("Unable to start programm")
+if not controller.start_program():
+    logger.error("Unable to start program")
     controller.disable()
     controller.close()
     quit()
@@ -55,17 +55,17 @@ if not controller.start_programm():
 sleep(5)
 
 logger.info("Pause program")
-if not controller.pause_programm():
-    logger.error("Unable to pause programm")
+if not controller.pause_program():
+    logger.error("Unable to pause program")
     controller.disable()
     controller.close()
     quit()
 
 sleep(5)
 
-logger.info("Start programm again")
-if not controller.start_programm():
-    logger.error("Unable to start programm")
+logger.info("Start program again")
+if not controller.start_program():
+    logger.error("Unable to start program")
     controller.disable()
     controller.close()
     quit()
@@ -73,8 +73,8 @@ if not controller.start_programm():
 sleep(5)
 
 logger.info("Stop program")
-if not controller.stop_programm():
-    logger.error("Unable to stop programm")
+if not controller.stop_program():
+    logger.error("Unable to stop program")
     controller.disable()
     controller.close()
     quit()

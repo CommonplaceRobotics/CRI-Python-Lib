@@ -11,7 +11,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from time import sleep, time
 
-from typing import Any, Callable, Coroutine, Literal, ParamSpec, TypeVar
+from typing import Any, Callable, Coroutine, Literal, NamedTuple, ParamSpec, TypeVar
 
 
 from .cri_errors import CRICommandError, CRICommandTimeOutError, CRIConnectionError
