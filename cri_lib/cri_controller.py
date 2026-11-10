@@ -1,9 +1,9 @@
 import asyncio
 import contextlib
+import functools
 import logging
 import socket
 import threading
-import functools
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from enum import Enum
@@ -39,9 +39,7 @@ def _run_sync(coro):
 P = ParamSpec("P")
 R = TypeVar("R")
 
-def blocking_wrapper(
-    async_fn: Callable[P, Coroutine[Any, Any, R]]
-) -> Callable[P, R]:
+def blocking_wrapper(async_fn: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, R]:
     """Create a blocking twin of an ``*_async`` method."""
     name = async_fn.__name__
 
