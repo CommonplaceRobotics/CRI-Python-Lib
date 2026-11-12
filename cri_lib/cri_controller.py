@@ -492,6 +492,13 @@ class CRIClient:
                 return True
 
             new_timeout = timeout - (time() - start_time)
+            if new_timeout < 0.025:
+                # We are in an error state and the remaining timeout is too short
+                # to reliably get another status update. Raise now with context instead of timing out.
+                raise CRICommandError(
+                    f"Kinematics not ready within {timeout:.2f} seconds. "
+                    f"State is: {self.robot_state.kinematics_state=}, {self.robot_state.combined_axes_error}"
+                )
 
         return False
 
