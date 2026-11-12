@@ -469,7 +469,9 @@ class CRIClient:
         """
         self.status_callback = callback
 
-    async def wait_for_kinematics_ready_async(self, timeout: float = 30) -> bool:
+    async def wait_for_kinematics_ready_async(
+        self, timeout: float = 30
+    ) -> Literal[True]:
         """Wait until drive state is indicated as ready.
 
         Parameters
@@ -477,10 +479,12 @@ class CRIClient:
         timeout : float
             maximum time to wait in seconds
 
-        Returns
-        -------
-        bool
-            `True`if drives are ready, `False` if not ready or timeout
+        Raises
+        ------
+        CRITimeoutError
+            When waiting for a status update times out.
+        CRICommandError
+            When no kinematics ready state was not reached within the timeout.
         """
         start_time = time()
         new_timeout = timeout
@@ -499,8 +503,7 @@ class CRIClient:
                     f"Kinematics not ready within {timeout:.2f} seconds. "
                     f"State is: {self.robot_state.kinematics_state=}, {self.robot_state.combined_axes_error}"
                 )
-
-        return False
+        raise NotImplementedError("This should be unreachable.")
 
     async def get_board_temperatures_async(
         self,
