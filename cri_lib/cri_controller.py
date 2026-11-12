@@ -122,6 +122,7 @@ class CRIClient:
         self.answer_events: dict[str, list[asyncio.Event]] = {}
         self.error_messages: dict[asyncio.Event, str] = {}
 
+        self.status_logger = logging.getLogger(__name__ + "/status")
         self.status_callback: Callable | None = None
 
     def connect(
@@ -412,7 +413,9 @@ class CRIClient:
 
     def _parse_message(self, message: str) -> None:
         """Internal function to parse a message. If an answer event is registered for a certain msg_id it is triggered."""
-        if "STATUS" not in message:
+        if "STATUS" in message:
+            self.status_logger.debug("Received status: %s", message)
+        else:
             logger.debug("Received: %s", message)
 
         if (notification := self.parser.parse_message(message)) is not None:
