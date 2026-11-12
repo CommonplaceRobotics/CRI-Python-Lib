@@ -1832,7 +1832,9 @@ class CRIConnector:
         return
 
     @contextlib.asynccontextmanager
-    async def control(self, *, auto_disable: bool) -> AsyncIterator[CRIController]:
+    async def control(
+        self, *, auto_disable: bool, auto_reset: bool = False
+    ) -> AsyncIterator[CRIController]:
         """Establish connection for controlling robot state.
 
         Parameters
@@ -1840,6 +1842,9 @@ class CRIConnector:
         auto_disable
             If ``True`` a graceful exit will call :meth:`CRIConnector.disable`
             to stop movements and turn off motors.
+        auto_reset
+            If `True` a :meth:`self.reset_async` will be called when 50 % of the timeout has passed.
+            Use with caution.
         """
         controller = CRIController()
         try:
@@ -1854,10 +1859,20 @@ class CRIConnector:
             # Take active control
             if not await controller.set_active_control_async(True):
                 raise CRICommandError("Failed to acquire active control.")
+            if (
+                auto_reset
+                and controller.robot_state.kinematics_state != KinematicsState.NO_ERROR
+            ):
+                logger.warning(
+                    "Auto-Resetting from kinematics state %s",
+                    controller.robot_state.kinematics_state,
+                )
+                if not await controller.reset_async():
+                    raise CRICommandError("Failed to reset.")
             if not await controller.enable_async():
                 raise CRICommandError("Failed to enable robot.")
-            if not await controller.wait_for_kinematics_ready_async(10):
-                raise CRICommandError("Kinematics not ready.")
+            await controller.wait_for_kinematics_ready_async(10)
+
             yield controller
             # Graceful context exit: give up control (maybe disable robot) then disconnect in finally block.
             if auto_disable:
