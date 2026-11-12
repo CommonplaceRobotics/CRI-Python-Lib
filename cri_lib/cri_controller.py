@@ -115,6 +115,10 @@ class CRIClient:
         self.receive_thread = threading.Thread(
             target=self._bg_receive_thread, daemon=True
         )
+        # Identify ourselves in the logs by the receiver thread ID because multiple CRIClients can exist in parallel.
+        self.log_extra = {
+            "receive_thread_id": self.receive_thread.ident,
+        }
 
         self.sent_command_counter_lock = threading.Lock()
         self.sent_command_counter = 0
@@ -274,7 +278,7 @@ class CRIClient:
         try:
             with self.socket_write_lock:
                 self.sock.sendall(message.encode())
-            logger.debug("Sent command: %s", message)
+            logger.debug("Sent command: %s", message, extra=self.log_extra)
 
             return SentCommand(command_counter, answer_event)
 
@@ -340,7 +344,8 @@ class CRIClient:
                 except Exception as ex:
                     logger.error(
                         "Receive Thread: Failed to parse message, clearing buffer: "
-                        + str(ex)
+                        + str(ex),
+                        extra=self.log_extra,
                     )
                     message_buffer.clear()
 
@@ -414,9 +419,11 @@ class CRIClient:
     def _parse_message(self, message: str) -> None:
         """Internal function to parse a message. If an answer event is registered for a certain msg_id it is triggered."""
         if "STATUS" in message:
-            self.status_logger.debug("Received status: %s", message)
+            self.status_logger.debug(
+                "Received status: %s", message, extra=self.log_extra
+            )
         else:
-            logger.debug("Received: %s", message)
+            logger.debug("Received: %s", message, extra=self.log_extra)
 
         if (notification := self.parser.parse_message(message)) is not None:
             if notification["answer"] == "status" and self.status_callback is not None:
@@ -659,7 +666,9 @@ class CRIController(CRIClient):
         """
         msg_id = self._send_command("CMD Reset", True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in RESET command: %s", error_msg)
+            logger.warning(
+                "Error in RESET command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -677,7 +686,9 @@ class CRIController(CRIClient):
         """
         msg_id = self._send_command("CMD Enable", True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in ENABLE command: %s", error_msg)
+            logger.warning(
+                "Error in ENABLE command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -693,7 +704,9 @@ class CRIController(CRIClient):
         """
         msg_id = self._send_command("CMD Disable", True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in DISABLE command: %s", error_msg)
+            logger.warning(
+                "Error in DISABLE command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -713,7 +726,11 @@ class CRIController(CRIClient):
             f"Active_{str(active).lower()}",
         )
         if (error_msg := await self._wait_for_answer_async(sent_command)) is not None:
-            logger.warning("Error in set active control command: %s", error_msg)
+            logger.warning(
+                "Error in set active control command: %s",
+                error_msg,
+                extra=self.log_extra,
+            )
             return False
         else:
             return True
@@ -729,7 +746,9 @@ class CRIController(CRIClient):
         """
         msg_id = self._send_command("CMD SetJointsToZero", True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in SetJointsToZero command: %s", error_msg)
+            logger.warning(
+                "Error in SetJointsToZero command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -747,7 +766,11 @@ class CRIController(CRIClient):
         if (
             error_msg := await self._wait_for_answer_async(msg_id, timeout=timeout)
         ) is not None:
-            logger.warning("Error in ReferenceAllJoints command: %s", error_msg)
+            logger.warning(
+                "Error in ReferenceAllJoints command: %s",
+                error_msg,
+                extra=self.log_extra,
+            )
             return False
         else:
             return True
@@ -780,7 +803,11 @@ class CRIController(CRIClient):
         if (
             error_msg := await self._wait_for_answer_async(msg_id, timeout=timeout)
         ) is not None:
-            logger.warning("Error in ReferenceSingleJoint command: %s", error_msg)
+            logger.warning(
+                "Error in ReferenceSingleJoint command: %s",
+                error_msg,
+                extra=self.log_extra,
+            )
             return False
         else:
             return True
@@ -798,7 +825,11 @@ class CRIController(CRIClient):
             "CMD GetReferencingInfo", True, "info_referencing"
         )
         if (error_msg := await self._wait_for_answer_async(sent_command)) is not None:
-            logger.warning("Error in GetReferencingInfo command: %s", error_msg)
+            logger.warning(
+                "Error in GetReferencingInfo command: %s",
+                error_msg,
+                extra=self.log_extra,
+            )
             return False
         else:
             return True
@@ -892,11 +923,17 @@ class CRIController(CRIClient):
             move_finished_timeout,
         )
         if command_error is not None:
-            logger.warning("Error in Move Joints command: %s", command_error)
+            logger.warning(
+                "Error in Move Joints command: %s", command_error, extra=self.log_extra
+            )
             return False
 
         if completion_error is not None:
-            logger.warning("Exec Error in Move Joints command: %s", completion_error)
+            logger.warning(
+                "Exec Error in Move Joints command: %s",
+                completion_error,
+                extra=self.log_extra,
+            )
             return False
         return True
 
@@ -959,12 +996,16 @@ class CRIController(CRIClient):
             move_finished_timeout,
         )
         if command_error is not None:
-            logger.warning("Error in Move Joints command: %s", command_error)
+            logger.warning(
+                "Error in Move Joints command: %s", command_error, extra=self.log_extra
+            )
             return False
 
         if completion_error is not None:
             logger.warning(
-                "Exec Error in Move Joints Relative command: %s", completion_error
+                "Exec Error in Move Joints Relative command: %s",
+                completion_error,
+                extra=self.log_extra,
             )
             return False
         return True
@@ -1034,11 +1075,17 @@ class CRIController(CRIClient):
             move_finished_timeout,
         )
         if command_error is not None:
-            logger.warning("Error in Move Joints command: %s", command_error)
+            logger.warning(
+                "Error in Move Joints command: %s", command_error, extra=self.log_extra
+            )
             return False
 
         if completion_error is not None:
-            logger.warning("Exec Error in Move Cartesian command: %s", completion_error)
+            logger.warning(
+                "Exec Error in Move Cartesian command: %s",
+                completion_error,
+                extra=self.log_extra,
+            )
             return False
 
         return True
@@ -1106,12 +1153,16 @@ class CRIController(CRIClient):
             move_finished_timeout,
         )
         if command_error is not None:
-            logger.warning("Error in Move Joints command: %s", command_error)
+            logger.warning(
+                "Error in Move Joints command: %s", command_error, extra=self.log_extra
+            )
             return False
 
         if completion_error is not None:
             logger.warning(
-                "Exec Error in Move BaseRelative command: %s", completion_error
+                "Exec Error in Move BaseRelative command: %s",
+                completion_error,
+                extra=self.log_extra,
             )
             return False
 
@@ -1180,11 +1231,17 @@ class CRIController(CRIClient):
             move_finished_timeout,
         )
         if command_error is not None:
-            logger.warning("Error in Move Joints command: %s", command_error)
+            logger.warning(
+                "Error in Move Joints command: %s", command_error, extra=self.log_extra
+            )
             return False
 
         if completion_error is not None:
-            logger.warning("Exec Error in Move BaseTool command: %s", completion_error)
+            logger.warning(
+                "Exec Error in Move BaseTool command: %s",
+                completion_error,
+                extra=self.log_extra,
+            )
             return False
 
         return True
@@ -1203,7 +1260,9 @@ class CRIController(CRIClient):
         if (
             error_msg := await self._wait_for_answer_async(msg_id, timeout=5.0)
         ) is not None:
-            logger.warning("Error in Move Stop command: %s", error_msg)
+            logger.warning(
+                "Error in Move Stop command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -1280,7 +1339,9 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in MotionType command: %s", error_msg)
+            logger.warning(
+                "Error in MotionType command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -1303,7 +1364,9 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in Override command: %s", error_msg)
+            logger.warning(
+                "Error in Override command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -1332,7 +1395,7 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in DOUT command: %s", error_msg)
+            logger.warning("Error in DOUT command: %s", error_msg, extra=self.log_extra)
             return False
         else:
             return True
@@ -1361,7 +1424,7 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in DIN command: %s", error_msg)
+            logger.warning("Error in DIN command: %s", error_msg, extra=self.log_extra)
             return False
         else:
             return True
@@ -1390,7 +1453,7 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in DIN command: %s", error_msg)
+            logger.warning("Error in DIN command: %s", error_msg, extra=self.log_extra)
             return False
         else:
             return True
@@ -1419,7 +1482,9 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in load_program command: %s", error_msg)
+            logger.warning(
+                "Error in load_program command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -1448,7 +1513,11 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in load_logic_program command: %s", error_msg)
+            logger.warning(
+                "Error in load_logic_program command: %s",
+                error_msg,
+                extra=self.log_extra,
+            )
             return False
         else:
             return True
@@ -1503,7 +1572,9 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in start_program command: %s", error_msg)
+            logger.warning(
+                "Error in start_program command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -1521,7 +1592,9 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in stop_program command: %s", error_msg)
+            logger.warning(
+                "Error in stop_program command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -1539,7 +1612,9 @@ class CRIController(CRIClient):
 
         msg_id = self._send_command(command, True)
         if (error_msg := await self._wait_for_answer_async(msg_id)) is not None:
-            logger.warning("Error in pause_program command: %s", error_msg)
+            logger.warning(
+                "Error in pause_program command: %s", error_msg, extra=self.log_extra
+            )
             return False
         else:
             return True
@@ -1573,11 +1648,13 @@ class CRIController(CRIClient):
             with open(file_path, "r") as fp:
                 lines = []
                 while line := fp.readline():
-                    logger.debug(line)
+                    logger.debug(line, extra=self.log_extra)
                     lines.append(line)
 
         except OSError as e:
-            logger.error("Error reading %s: %s", str(Path), str(e))
+            logger.error(
+                "Error reading %s: %s", str(Path), str(e), extra=self.log_extra
+            )
             return False
 
         command = f"CMD UploadFileInit {target_directory + '/' + str(file_path.name)} {len(lines)} 0"
@@ -1623,7 +1700,7 @@ class CRIController(CRIClient):
             data for CAN message always 8 bytes
         """
         if not self.can_mode:
-            logger.debug("can_send: CAN mode not enabled")
+            logger.debug("can_send: CAN mode not enabled", extra=self.log_extra)
             return
 
         command = f"CANBridge Msg ID {msg_id} Len {length} Data " + " ".join(
@@ -1643,7 +1720,7 @@ class CRIController(CRIClient):
             Returns a tuple of (msg_id, length, data) if a message was received or None if nothing was received within the timeout.
         """
         if not self.can_mode:
-            logger.debug("can_receive: CAN mode not enabled")
+            logger.debug("can_receive: CAN mode not enabled", extra=self.log_extra)
             return None
 
         try:
